@@ -38,10 +38,6 @@ jobs:
             version: 2
         include:
           - device: e50
-            version: 1
-            toolchain: mipsel-mtk-linux-
-            image: mtk-kernel
-          - device: e50
             version: 2
             toolchain: mipsel-linux-gnu-
             image: mipsel-kernel
