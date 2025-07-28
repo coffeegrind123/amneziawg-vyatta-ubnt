@@ -312,45 +312,39 @@ EOF
           tar -xf headers.tar
           cd module/src
           
-          # Debug: Check current directory structure
           echo "=== Current module/src structure ==="
           ls -la
           echo "=== Looking for Makefiles ==="
           find . -name "Makefile*" -o -name "*.mk"
           
-          # Ensure generated directory exists
           mkdir -p generated
           
-          # Check if main Makefile exists and what it contains
           if [ -f "Makefile" ]; then
             echo "=== Main Makefile content (first 20 lines) ==="
             head -20 Makefile
           fi
           
-          # Try building with verbose output
           echo "=== Starting module build ==="
-          make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 module || {
+          if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 module; then
             echo "=== Build failed, trying alternative approach ==="
             
-            # Check if we need to create version files
             if [ ! -f "version.h" ] && [ -f "../scripts/version.sh" ]; then
               echo "Generating version.h..."
               ../scripts/version.sh > version.h
             fi
             
-            # Try with different target names
-            make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 modules || \
-            make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 all || {
-              echo "=== All build attempts failed, showing detailed info ==="
-              echo "Available make targets:"
-              make help 2>/dev/null || echo "No help available"
-              echo "KERNELDIR contents:"
-              ls -la $GITHUB_WORKSPACE/headers/ | head -10
-              exit 1
-            }
-          }
+            if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 modules; then
+              if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 all; then
+                echo "=== All build attempts failed, showing detailed info ==="
+                echo "Available make targets:"
+                make help 2>/dev/null || echo "No help available"
+                echo "KERNELDIR contents:"
+                ls -la $GITHUB_WORKSPACE/headers/ | head -10
+                exit 1
+              fi
+            fi
+          fi
           
-          # Strip the module
           if [ -f "wireguard.ko" ]; then
             ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
             echo "=== Module built successfully ==="
