@@ -201,6 +201,28 @@ jobs:
           cd module
           sed -i 's/ --dirty//g' src/Makefile
           patch -p1 < ../siphash_no_fallthrough.patch
+          
+          # Generate version and build files
+          cd src
+          if [ -f "../scripts/version.sh" ]; then
+            ../scripts/version.sh > version.h
+          fi
+          
+          # Create generated directory and files if they don't exist
+          mkdir -p generated
+          
+          # Create a minimal generated/Makefile if it doesn't exist
+          if [ ! -f "generated/Makefile" ]; then
+            cat > generated/Makefile << 'EOF'
+# Generated Makefile for WireGuard module
+obj-m += wireguard.o
+EOF
+          fi
+          
+          # Check what files we have in the module
+          echo "=== Module source structure ==="
+          find . -name "Makefile*" -o -name "*.mk" | head -10
+          ls -la .
       - name: Upload module source
         uses: actions/upload-artifact@v4
         with:
@@ -289,8 +311,55 @@ jobs:
           export PATH="/usr/local/bin:$PATH"
           tar -xf headers.tar
           cd module/src
-          make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module
-          ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
+          
+          # Debug: Check current directory structure
+          echo "=== Current module/src structure ==="
+          ls -la
+          echo "=== Looking for Makefiles ==="
+          find . -name "Makefile*" -o -name "*.mk"
+          
+          # Ensure generated directory exists
+          mkdir -p generated
+          
+          # Check if main Makefile exists and what it contains
+          if [ -f "Makefile" ]; then
+            echo "=== Main Makefile content (first 20 lines) ==="
+            head -20 Makefile
+          fi
+          
+          # Try building with verbose output
+          echo "=== Starting module build ==="
+          make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 module || {
+            echo "=== Build failed, trying alternative approach ==="
+            
+            # Check if we need to create version files
+            if [ ! -f "version.h" ] && [ -f "../scripts/version.sh" ]; then
+              echo "Generating version.h..."
+              ../scripts/version.sh > version.h
+            fi
+            
+            # Try with different target names
+            make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 modules || \
+            make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 all || {
+              echo "=== All build attempts failed, showing detailed info ==="
+              echo "Available make targets:"
+              make help 2>/dev/null || echo "No help available"
+              echo "KERNELDIR contents:"
+              ls -la $GITHUB_WORKSPACE/headers/ | head -10
+              exit 1
+            }
+          }
+          
+          # Strip the module
+          if [ -f "wireguard.ko" ]; then
+            ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
+            echo "=== Module built successfully ==="
+            ls -la wireguard.ko
+          else
+            echo "=== wireguard.ko not found, checking for other .ko files ==="
+            find . -name "*.ko"
+            exit 1
+          fi
       - name: Upload built module
         uses: actions/upload-artifact@v4
         with:
