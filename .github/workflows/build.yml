@@ -655,15 +655,49 @@ EOF
       - uses: actions/checkout@v4
       - name: Prepare
         run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
-      - name: Restore modules
+      - name: Restore modules from all builds
+        run: |
+          mkdir -p temp-modules
+          # Download each module artifact individually
+          for base in udm-1.9.0-10 udm-1.10.0-8 udm-1.10.0-12 udm-se-2.2.4 udr-2.2.12; do
+            echo "Downloading modules for $base"
+          done
+      - name: Download udm-1.9.0-10 modules
         uses: actions/download-artifact@v4
         with:
-          pattern: modules-*
-          path: temp-modules
+          name: modules-udm-1.9.0-10
+          path: temp-modules/udm-1.9.0-10
+        continue-on-error: true
+      - name: Download udm-1.10.0-8 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-1.10.0-8
+          path: temp-modules/udm-1.10.0-8
+        continue-on-error: true
+      - name: Download udm-1.10.0-12 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-1.10.0-12
+          path: temp-modules/udm-1.10.0-12
+        continue-on-error: true
+      - name: Download udm-se-2.2.4 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-se-2.2.4
+          path: temp-modules/udm-se-2.2.4
+        continue-on-error: true
+      - name: Download udr-2.2.12 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udr-2.2.12
+          path: temp-modules/udr-2.2.12
+        continue-on-error: true
       - name: Consolidate modules
         run: |
           # Move all modules to the package directory
           find temp-modules -name "*.ko" -exec cp {} package/wireguard/modules/ \;
+          echo "Consolidated modules:"
+          ls -la package/wireguard/modules/
           ls -la package/wireguard/modules/
       - name: Restore tools
         uses: actions/download-artifact@v4
