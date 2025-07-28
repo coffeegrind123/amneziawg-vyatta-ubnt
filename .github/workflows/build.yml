@@ -49,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y build-essential curl wget xz-utils ca-certificates jq patch
+          apt-get install -y build-essential curl wget xz-utils ca-certificates jq patch bc
       - name: Setup toolchain and build headers
         run: |
           echo "=== STARTING COMPLETE WORKFLOW ==="
@@ -243,7 +243,7 @@ jobs:
       - name: Install dependencies and setup toolchain
         run: |
           apt-get update
-          apt-get install -y build-essential patch
+          apt-get install -y build-essential patch bc
           
           # Install and setup cross-compilation toolchain  
           echo "Setting up toolchain: ${{ matrix.toolchain }}"
