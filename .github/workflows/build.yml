@@ -92,25 +92,90 @@ jobs:
           mv kernel_* kernel.tar.gz
           tar -xf kernel.tar.gz --strip-components 1
           
-          # Fix DTC multiple definition issue with newer flex/bison
-          echo "Fixing DTC compilation issue..."
-          if [ -f scripts/dtc/dtc-lexer.lex.c ]; then
-            sed -i '/^YYLTYPE yylloc;/d' scripts/dtc/dtc-lexer.lex.c
+          # Enhanced DTC compilation fix for newer flex/bison versions
+          echo "=== APPLYING COMPREHENSIVE DTC FIX ==="
+          
+          # Set compiler flags for host compilation
+          export HOSTCFLAGS="-fcommon"
+          export HOSTCXXFLAGS="-fcommon"
+          
+          # Remove any pre-generated DTC files to force clean regeneration
+          echo "Cleaning pre-generated DTC files..."
+          rm -f scripts/dtc/dtc-lexer.lex.c scripts/dtc/dtc-parser.tab.c scripts/dtc/dtc-parser.tab.h 2>/dev/null || true
+          
+          # Patch DTC Makefile to add -fcommon flag
+          if [ -f scripts/dtc/Makefile ]; then
+            echo "Patching DTC Makefile for yylloc fix..."
+            if ! grep -q "fcommon" scripts/dtc/Makefile; then
+              # Add -fcommon flags for DTC compilation
+              sed -i '/HOSTCFLAGS_DTC.*:=/a # Fix yylloc multiple definition issue\nHOSTCFLAGS_dtc-lexer.lex.o := $(HOSTCFLAGS_DTC) -fcommon\nHOSTCFLAGS_dtc-parser.tab.o := $(HOSTCFLAGS_DTC) -fcommon' scripts/dtc/Makefile
+              echo "DTC Makefile patched successfully"
+            else
+              echo "DTC Makefile already contains fcommon flags"
+            fi
           fi
           
-          if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
-          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
-          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
+          # Create a function to apply post-generation fixes
+          apply_dtc_post_fix() {
+            if [ -f scripts/dtc/dtc-lexer.lex.c ]; then
+              echo "Removing duplicate yylloc declarations from lexer..."
+              sed -i '/^YYLTYPE yylloc;/d' scripts/dtc/dtc-lexer.lex.c
+            fi
+            
+            if [ -f scripts/dtc/dtc-parser.tab.c ]; then
+              echo "Making yylloc extern in parser..."
+              sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-parser.tab.c
+            fi
+          }
+          
+          # Configure the kernel
+          echo "=== CONFIGURING KERNEL ==="
+          if [ ${{ matrix.version }} -ne 1 ]; then 
+            make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig
+          fi
+          
+          # First attempt at prepare - might generate DTC files
+          echo "=== PREPARING KERNEL BUILD ==="
+          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" prepare || {
+            echo "First prepare failed, applying post-generation DTC fixes..."
+            apply_dtc_post_fix
+            echo "Retrying prepare after DTC fixes..."
+            make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" prepare
+          }
+          
+          # Modules prepare
+          echo "=== PREPARING MODULES ==="
+          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" modules_prepare || {
+            echo "Modules prepare failed, applying DTC fixes again..."
+            apply_dtc_post_fix
+            echo "Retrying modules_prepare after DTC fixes..."
+            make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" modules_prepare
+          }
+          
+          # Build modules
+          echo "=== BUILDING MODULES ==="
+          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" modules || {
+            echo "Modules build failed, applying final DTC fixes..."
+            apply_dtc_post_fix
+            echo "Retrying modules build after DTC fixes..."
+            make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" modules
+          }
+          
+          # Copy build artifacts
           cp Module.symvers .config /headers
           make mrproper
-          make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
-          rm /headers/source /headers/Makefile
-          # This is from alpine linux who in turn got it from
-          # http://kernel.ubuntu.com/git/ubuntu/ubuntu-zesty.git/tree/debian/rules.d/3-binary-indep.mk
+          
+          # Build output headers
+          make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" prepare modules_prepare scripts
+          rm -f /headers/source /headers/Makefile 2>/dev/null || true
+          
+          # Copy necessary files for module compilation
           find . -path './include/*' -prune -o -path './scripts/*' -prune -o -type f \( -name 'Makefile*' -o -name 'Kconfig*' -o -name 'Kbuild*' -o -name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) -print | cpio -pdm "/headers"
           cp -a scripts include "/headers"
           find $(find arch -name include -type d -print) -type f | cpio -pdm "/headers"
           tar -cf headers.tar /headers/
+          
+          echo "=== HEADERS BUILD COMPLETED SUCCESSFULLY ==="
       - name: Store headers
         uses: actions/upload-artifact@v4
         with:
@@ -647,6 +712,11 @@ EOF
           fi
           
           cd buildroot-2017.11.1
+          
+          # Set host compiler flags for DTC compatibility
+          export HOSTCFLAGS="-fcommon"
+          export HOSTCXXFLAGS="-fcommon"
+          
           (IFS=','
           for ver in $versions; do
             echo "=== Building version $ver ==="
@@ -669,9 +739,9 @@ EOF
             echo "Setting kernel version to: $ver"
             sed -i -e '/CONFIG_LOCALVERSION=/s/.*/CONFIG_LOCALVERSION="'$ver'"/' kernel-config
             
-            # Build with detailed error reporting
+            # Build with detailed error reporting and DTC fixes
             echo "Starting build for version $ver..."
-            if ! make wireguard-linux-compat-rebuild -j$(nproc); then
+            if ! make wireguard-linux-compat-rebuild -j$(nproc) HOSTCFLAGS="-fcommon"; then
               echo "=== BUILD FAILED for version $ver ==="
               echo "Build directory contents:"
               ls -la output/build/ || echo "No build directory"
@@ -800,19 +870,28 @@ EOF
       - name: Build WireGuard tools
         run: |
           cd buildroot-2017.11.1
-          make wireguard-tools-rebuild -j$(nproc) # -> output/target/usr/bin/wg
+          # Set host compiler flags for DTC compatibility
+          export HOSTCFLAGS="-fcommon"
+          export HOSTCXXFLAGS="-fcommon"
+          make wireguard-tools-rebuild -j$(nproc) HOSTCFLAGS="-fcommon" # -> output/target/usr/bin/wg
       - name: Build bash
         run: |
           cd buildroot-2017.11.1
-          make bash-rebuild -j$(nproc) # -> output/target/bin/bash
+          export HOSTCFLAGS="-fcommon"
+          export HOSTCXXFLAGS="-fcommon"
+          make bash-rebuild -j$(nproc) HOSTCFLAGS="-fcommon" # -> output/target/bin/bash
       - name: Build resolvconf
         run: |
           cd buildroot-2017.11.1
-          make openresolv-rebuild -j$(nproc) # -> output/target/sbin/resolvconf
+          export HOSTCFLAGS="-fcommon"
+          export HOSTCXXFLAGS="-fcommon"
+          make openresolv-rebuild -j$(nproc) HOSTCFLAGS="-fcommon" # -> output/target/sbin/resolvconf
       - name: Build qrencode
         run: |
           cd buildroot-2017.11.1
-          make libqrencode-rebuild -j$(nproc) # -> output/target/usr/bin/qrencode
+          export HOSTCFLAGS="-fcommon"
+          export HOSTCXXFLAGS="-fcommon"
+          make libqrencode-rebuild -j$(nproc) HOSTCFLAGS="-fcommon" # -> output/target/usr/bin/qrencode
       - name: Collect tools
         run: |
           mkdir -p tools
