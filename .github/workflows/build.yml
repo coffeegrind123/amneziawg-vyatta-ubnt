@@ -14,8 +14,6 @@ env:
   FIRMWARE_ER_v1: "v1.10.11"
   FIRMWARE_ER_v2: "v2.0.9"
   FIRMWARE_UGW: "4.4.50"
-  # Force Node.js 16 to avoid GLIBC compatibility issues with older containers
-  ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
 
 jobs:
   headers:
@@ -662,7 +660,6 @@ EOF
         with:
           pattern: modules-*
           path: temp-modules
-          merge-multiple: true
       - name: Consolidate modules
         run: |
           # Move all modules to the package directory
