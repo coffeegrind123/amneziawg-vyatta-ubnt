@@ -21,10 +21,13 @@ jobs:
   headers:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+    env:
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     container:
       image: ghcr.io/fossoreslp/ubnt-build:${{ matrix.image }}
       env:
         CROSS: ${{ matrix.toolchain }}
+      options: --user root
 
     strategy:
       matrix:
@@ -98,8 +101,11 @@ jobs:
     needs: [module-prepare, headers]
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    env:
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     container:
       image: ghcr.io/fossoreslp/ubnt-build:${{ matrix.image }}
+      options: --user root
 
     strategy:
       matrix:
@@ -150,6 +156,8 @@ jobs:
   tools:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+    env:
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
 
     strategy:
       matrix:
@@ -207,7 +215,22 @@ jobs:
         run: |
           curl -L -o wireguard-tools-$TOOLS_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v$TOOLS_VERSION.tar.gz
           tar -xf wireguard-tools-$TOOLS_VERSION.tar.gz
-          mv wireguard-tools-$TOOLS_VERSION tools
+          
+          # Check what directory was actually created
+          echo "=== Extracted contents ==="
+          ls -la
+          
+          # Find the actual directory name (it might be amneziawg-tools-$TOOLS_VERSION)
+          ACTUAL_DIR=$(find . -maxdepth 1 -type d -name "*tools*" | head -1)
+          if [ -z "$ACTUAL_DIR" ]; then
+            echo "ERROR: Could not find extracted tools directory"
+            ls -la
+            exit 1
+          fi
+          
+          echo "Found tools directory: $ACTUAL_DIR"
+          mv "$ACTUAL_DIR" tools
+          
           cd tools/src
           CC="${TOOLCHAIN_PREFIX}-gcc" LDLIBS="-static" make -j$(nproc)
           ${TOOLCHAIN_PREFIX}-strip --strip-unneeded wg
@@ -279,6 +302,8 @@ jobs:
   udm-prepare-buildroot:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
+    env:
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     steps:
       - uses: actions/checkout@v4
       - name: Download buildroot-2017.11.1
@@ -417,6 +442,8 @@ EOF
     needs: [udm-prepare-buildroot]
     runs-on: ubuntu-22.04
     timeout-minutes: 180
+    env:
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     strategy:
       matrix:
         base: [udm-1.9.0-10, udm-1.10.0-8, udm-1.10.0-12, udm-se-2.2.4, udr-2.2.12]
@@ -596,6 +623,7 @@ EOF
     timeout-minutes: 120
     env:
       BASE: udm-1.9.0-10
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     steps:
       - uses: actions/checkout@v4
       - name: Restore buildroot
@@ -691,10 +719,14 @@ EOF
             echo "Warning: resolvconf.conf not found, continuing"
           fi
           
+          # Check for wg-quick in the build directory - try both locations
           if [ -f "output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
             cp output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
+          elif [ -f "output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
+            cp output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
           else
-            echo "Warning: wg-quick not found, continuing"
+            echo "Warning: wg-quick not found, checking available directories..."
+            find output/build -name "linux.bash" -type f || echo "No wg-quick script found"
           fi
       - name: Store tools
         uses: actions/upload-artifact@v4
@@ -706,6 +738,8 @@ EOF
     needs: [udm-build-tools, udm-build-modules]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
+    env:
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     steps:
       - uses: actions/checkout@v4
       - name: Prepare
@@ -779,6 +813,8 @@ EOF
   release:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
+    env:
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     needs:
       - package
       - udm-package
