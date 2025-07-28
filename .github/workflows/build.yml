@@ -49,11 +49,21 @@ jobs:
             image: mipsel-kernel
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
+      - name: Cache toolchain
+        uses: actions/cache@v4.0.0
+        with:
+          path: |
+            /usr/local/bin/mips*
+            /usr/lib/gcc-cross/
+          key: toolchain-${{ matrix.toolchain }}-${{ runner.os }}-v2
+          
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y build-essential curl wget xz-utils ca-certificates jq patch bc cpio
+          apt-get install -y build-essential curl wget xz-utils ca-certificates jq patch bc cpio file
+          
       - name: Setup toolchain and build headers
         run: |
           echo "=== STARTING COMPLETE WORKFLOW ==="
@@ -99,9 +109,14 @@ jobs:
           # Enhanced DTC compilation fix for newer flex/bison versions
           echo "=== APPLYING COMPREHENSIVE DTC FIX ==="
           
-          # Set compiler flags for host compilation
-          export HOSTCFLAGS="-fcommon"
-          export HOSTCXXFLAGS="-fcommon"
+          # Set compiler flags for host compilation with enhanced error handling
+          export HOSTCFLAGS="-fcommon -Wno-error"
+          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          
+          # Preemptively fix DTC issues before they occur
+          echo "Pre-applying DTC fixes..."
+          find . -name "dtc-lexer.lex.c" -exec sed -i '/^YYLTYPE yylloc;/d' {} \; 2>/dev/null || true
+          find . -name "dtc-parser.tab.c" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' {} \; 2>/dev/null || true
           
           # Remove any pre-generated DTC files to force clean regeneration
           echo "Cleaning pre-generated DTC files..."
@@ -112,7 +127,7 @@ jobs:
             echo "Patching DTC Makefile for yylloc fix..."
             if ! grep -q "fcommon" scripts/dtc/Makefile; then
               # Add -fcommon flags for DTC compilation
-              sed -i '/HOSTCFLAGS_DTC.*:=/a # Fix yylloc multiple definition issue\nHOSTCFLAGS_dtc-lexer.lex.o := $(HOSTCFLAGS_DTC) -fcommon\nHOSTCFLAGS_dtc-parser.tab.o := $(HOSTCFLAGS_DTC) -fcommon' scripts/dtc/Makefile
+              sed -i '/HOSTCFLAGS_DTC.*:=/a # Fix yylloc multiple definition issue\nHOSTCFLAGS_dtc-lexer.lex.o := $(HOSTCFLAGS_DTC) -fcommon -Wno-error\nHOSTCFLAGS_dtc-parser.tab.o := $(HOSTCFLAGS_DTC) -fcommon -Wno-error' scripts/dtc/Makefile
               echo "DTC Makefile patched successfully"
             else
               echo "DTC Makefile already contains fcommon flags"
@@ -138,31 +153,37 @@ jobs:
             make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig
           fi
           
+          # Calculate optimal parallel jobs (75% of available cores)
+          NPROC=$(nproc)
+          PARALLEL_JOBS=$((NPROC * 3 / 4))
+          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
+          echo "Using $PARALLEL_JOBS parallel jobs (from $NPROC cores)"
+          
           # First attempt at prepare - might generate DTC files
           echo "=== PREPARING KERNEL BUILD ==="
-          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" prepare || {
+          make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare || {
             echo "First prepare failed, applying post-generation DTC fixes..."
             apply_dtc_post_fix
             echo "Retrying prepare after DTC fixes..."
-            make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" prepare
+            make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare
           }
           
           # Modules prepare
           echo "=== PREPARING MODULES ==="
-          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" modules_prepare || {
+          make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules_prepare || {
             echo "Modules prepare failed, applying DTC fixes again..."
             apply_dtc_post_fix
             echo "Retrying modules_prepare after DTC fixes..."
-            make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" modules_prepare
+            make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules_prepare
           }
           
           # Build modules
           echo "=== BUILDING MODULES ==="
-          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" modules || {
+          make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules || {
             echo "Modules build failed, applying final DTC fixes..."
             apply_dtc_post_fix
             echo "Retrying modules build after DTC fixes..."
-            make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" modules
+            make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules
           }
           
           # Copy build artifacts
@@ -170,7 +191,7 @@ jobs:
           make mrproper
           
           # Build output headers
-          make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="-fcommon" prepare modules_prepare scripts
+          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare modules_prepare scripts
           rm -f /headers/source /headers/Makefile 2>/dev/null || true
           
           # Copy necessary files for module compilation
@@ -180,8 +201,22 @@ jobs:
           tar -cf headers.tar /headers/
           
           echo "=== HEADERS BUILD COMPLETED SUCCESSFULLY ==="
+          
+      - name: Enhanced error reporting
+        if: failure()
+        run: |
+          echo "=== BUILD FAILURE ANALYSIS ==="
+          echo "Available disk space:"
+          df -h
+          echo "Memory usage:"
+          free -h
+          echo "Build directory contents:"
+          find . -name "*.log" -exec echo "=== {} ===" \; -exec tail -50 {} \; 2>/dev/null || echo "No logs found"
+          echo "DTC related files:"
+          find . -name "*dtc*" -type f | head -10
+          
       - name: Store headers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
           path: headers.tar
@@ -193,14 +228,24 @@ jobs:
       image: ubuntu:24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y curl wget ca-certificates patch
+          apt-get install -y curl wget ca-certificates patch file
+          
       - name: Download module source
         run: |
-          curl -L -o wireguard-linux-compat-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
+          # Download with retry logic
+          for attempt in {1..3}; do
+            if curl -L -o wireguard-linux-compat-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz; then
+              break
+            fi
+            echo "Download attempt $attempt failed, retrying..."
+            sleep 5
+          done
+          
           tar -xf wireguard-linux-compat-$MODULE_VERSION.tar.gz --one-top-level=module --strip-components=1
           cd module
           sed -i 's/ --dirty//g' src/Makefile
@@ -221,8 +266,9 @@ jobs:
           echo "=== Module source structure ==="
           find . -name "Makefile*" -o -name "*.mk" | head -10
           ls -la .
+          
       - name: Upload module source
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: module-src
           path: module
@@ -259,11 +305,12 @@ jobs:
             image: mtk-kernel
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
       - name: Install dependencies and setup toolchain
         run: |
           apt-get update
-          apt-get install -y build-essential patch bc
+          apt-get install -y build-essential patch bc file
           
           # Install and setup cross-compilation toolchain  
           echo "Setting up toolchain: ${{ matrix.toolchain }}"
@@ -295,22 +342,47 @@ jobs:
             ln -sf /usr/bin/mipsel-linux-gnu-ranlib /usr/local/bin/mipsel-mtk-linux-ranlib
             export PATH="/usr/local/bin:$PATH"
           fi
+          
       - name: Restore module source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: module-src
           path: module
+          
       - name: Restore headers
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
+          
+      - name: Detect kernel version
+        run: |
+          tar -xf headers.tar
+          # Enhanced kernel version detection
+          KERNEL_VERSION=$(
+            grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Makefile | 
+            head -3 | cut -d'=' -f2 | tr -d ' ' | paste -sd '.' ||
+            grep "LINUX_VERSION_CODE" $GITHUB_WORKSPACE/headers/include/generated/uapi/linux/version.h 2>/dev/null |
+            awk '{print $3}' | python3 -c "
+import sys
+try:
+    code = int(sys.stdin.read().strip())
+    major = (code >> 16) & 0xFF
+    minor = (code >> 8) & 0xFF
+    patch = code & 0xFF
+    print(f'{major}.{minor}.{patch}')
+except:
+    print('3.10.107')
+" || echo "3.10.107"
+          )
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
+          echo "Detected kernel version: $KERNEL_VERSION"
+          
       - name: Apply AmneziawG compatibility fixes
         run: |
           export PATH="/usr/local/bin:$PATH"
-          tar -xf headers.tar
           cd module/src
           
-          echo "=== APPLYING AMNEZIAWG COMPATIBILITY FIXES FOR KERNEL 3.10.107 ==="
+          echo "=== APPLYING AMNEZIAWG COMPATIBILITY FIXES FOR KERNEL $KERNEL_VERSION ==="
           
           # 1. Fix get_random_u8() compatibility in netlink.c
           echo "Fixing get_random_u8() usage..."
@@ -324,101 +396,55 @@ jobs:
           if ! grep -q "get_random_u8" compat/compat.h; then
               cat >> compat/compat.h << 'EOF'
 
-          /* get_random_u8 compatibility for older kernels */
-          #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
-          static inline u8 get_random_u8(void)
-          {
-              u32 random_val = get_random_u32();
-              return (u8)(random_val & 0xFF);
-          }
-          #endif
-          EOF
+/* get_random_u8 compatibility for older kernels */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
+static inline u8 get_random_u8(void)
+{
+    u32 random_val = get_random_u32();
+    return (u8)(random_val & 0xFF);
+}
+#endif
+EOF
               echo "✓ Added get_random_u8 compatibility wrapper"
           fi
           
-          # 3. Create netlink compatibility patch
-          echo "Creating netlink compatibility patch..."
-          cat > netlink_compat.patch << 'EOF'
-          --- a/netlink.c
-          +++ b/netlink.c
-          @@ -918,8 +918,12 @@ static struct genl_family genl_family = {
-           	.netnsok = true,
-           	.pre_doit = wg_pre_doit,
-           	.post_doit = wg_post_doit,
-          +#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
-           	.mcgrps = wg_genl_mcgrps,
-           	.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)
-          +#else
-          +	/* mcgrps and n_mcgrps not available in older kernels */
-          +#endif
-           };
-           
-           int __init wg_genetlink_init(void)
-          @@ -927,6 +931,13 @@ int __init wg_genetlink_init(void)
-           	int ret;
-           
-           	ret = genl_register_family(&genl_family);
-          +#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
-          +	if (ret < 0)
-          +		return ret;
-          +	/* Register multicast groups separately for older kernels */
-          +	ret = genl_register_mc_group(&genl_family, &wg_genl_mcgrps[0]);
-          +	if (ret < 0)
-          +		genl_unregister_family(&genl_family);
-          +#endif
-           	return ret;
-           }
-           
-          @@ -983,7 +994,11 @@ static void wg_genl_mcast_peer_unknown(struct wg_device *wg,
-           	if (!skb)
-           		goto free_msg;
-           
-          +#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
-           	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);
-          +#else
-          +	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);
-          +#endif
-           	if (ret < 0 && ret != -ESRCH) /* -ESRCH means no one is listening */
-           		goto free_msg;
-           	return;
-          EOF
+          # 3. Enhanced netlink compatibility fixes
+          echo "Applying enhanced netlink compatibility fixes..."
           
-          # Apply the patch
-          if patch -p1 --dry-run < netlink_compat.patch > /dev/null 2>&1; then
-              patch -p1 < netlink_compat.patch
-              echo "✓ Applied netlink compatibility patch"
-          else
-              echo "! Patch conflicts, applying manual fixes..."
-              
-              # Manual fixes for netlink.c structure definition
-              # Fix the genl_family structure for older kernels
+          # Fix genl_family structure for older kernels
+          if grep -q "\.mcgrps = wg_genl_mcgrps," netlink.c; then
               sed -i '/\.mcgrps = wg_genl_mcgrps,/i\
-          #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)' netlink.c
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)' netlink.c
               
               sed -i '/\.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)/a\
-          #else\
-          \t/* mcgrps and n_mcgrps not available in older kernels */\
-          #endif' netlink.c
-              
-              # Fix the registration function
+#else\
+	/* mcgrps and n_mcgrps not available in older kernels */\
+#endif' netlink.c
+              echo "✓ Fixed genl_family structure"
+          fi
+          
+          # Fix registration function
+          if grep -q "ret = genl_register_family(&genl_family);" netlink.c; then
               sed -i '/ret = genl_register_family(&genl_family);/a\
-          #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)\
-          \tif (ret < 0)\
-          \t\treturn ret;\
-          \t/* Register multicast groups separately for older kernels */\
-          \tret = genl_register_mc_group(\&genl_family, \&wg_genl_mcgrps[0]);\
-          \tif (ret < 0)\
-          \t\tgenl_unregister_family(\&genl_family);\
-          #endif' netlink.c
-              
-              # Fix the multicast function call
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)\
+	if (ret < 0)\
+		return ret;\
+	/* Register multicast groups separately for older kernels */\
+	ret = genl_register_mc_group(\&genl_family, \&wg_genl_mcgrps[0]);\
+	if (ret < 0)\
+		genl_unregister_family(\&genl_family);\
+#endif' netlink.c
+              echo "✓ Fixed registration function"
+          fi
+          
+          # Fix multicast function call
+          if grep -q "genlmsg_multicast_netns(&genl_family" netlink.c; then
               sed -i 's/ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);/#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)\
-          \tret = genlmsg_multicast_netns(\&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);\
-          #else\
-          \tret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);\
-          #endif/' netlink.c
-              
-              echo "✓ Applied manual compatibility fixes"
+	ret = genlmsg_multicast_netns(\&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);\
+#else\
+	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);\
+#endif/' netlink.c
+              echo "✓ Fixed multicast function"
           fi
           
           # 4. Fix compiler warnings by adjusting flags
@@ -431,10 +457,8 @@ jobs:
               fi
           fi
           
-          # 5. Force WERROR=no in kernel build
-          export KCFLAGS="-Wno-error"
-          
           echo "=== COMPATIBILITY FIXES COMPLETED ==="
+          
       - name: Build module
         run: |
           export PATH="/usr/local/bin:$PATH"
@@ -450,17 +474,11 @@ jobs:
             head -20 Makefile
           fi
           
-          # Get the target kernel version from headers instead of host system
-          TARGET_KERNEL=$(grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Makefile | head -3 | cut -d'=' -f2 | tr -d ' ' | paste -sd '.')
-          if [ -z "$TARGET_KERNEL" ]; then
-            # Fallback: try to get version from headers config
-            TARGET_KERNEL=$(grep "Linux kernel version:" $GITHUB_WORKSPACE/headers/.config | cut -d':' -f2 | tr -d ' ' || echo "3.10.107")
-          fi
-          echo "=== Target kernel version: $TARGET_KERNEL ==="
+          echo "=== Target kernel version: $KERNEL_VERSION ==="
           
           # Set build variables for compatibility
           export KERNELDIR="$GITHUB_WORKSPACE/headers"
-          export KERNELRELEASE="$TARGET_KERNEL"
+          export KERNELRELEASE="$KERNEL_VERSION"
           export CROSS_COMPILE="${{ matrix.toolchain }}"
           export ARCH="mips"
           
@@ -468,11 +486,17 @@ jobs:
           export KCFLAGS="-Wno-error -Wno-address -Wno-array-bounds -Wno-missing-attributes -Wno-stringop-overread"
           export EXTRA_CFLAGS="$KCFLAGS"
           
+          # Calculate optimal parallel jobs
+          NPROC=$(nproc)
+          PARALLEL_JOBS=$((NPROC * 3 / 4))
+          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
+          
           echo "=== Starting module build with compatibility mode ==="
           echo "Kernel directory: $KERNELDIR"
           echo "Cross compiler: $CROSS_COMPILE"
           echo "Architecture: $ARCH"
           echo "Kernel release: $KERNELRELEASE"
+          echo "Parallel jobs: $PARALLEL_JOBS"
           
           # Try multiple build approaches
           BUILD_SUCCESS=0
@@ -480,7 +504,7 @@ jobs:
           # Method 1: Direct kernel build
           echo "=== Attempting direct kernel build ==="
           if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-              EXTRA_CFLAGS="$KCFLAGS" V=1 modules; then
+              EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules; then
               echo "✓ Direct kernel build successful"
               BUILD_SUCCESS=1
           else
@@ -489,7 +513,7 @@ jobs:
               # Method 2: Module-specific Makefile
               echo "=== Attempting module-specific build ==="
               if make KERNELDIR="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                  KERNELRELEASE="$KERNELRELEASE" V=1 module; then
+                  KERNELRELEASE="$KERNELRELEASE" V=1 -j$PARALLEL_JOBS module; then
                   echo "✓ Module-specific build successful"
                   BUILD_SUCCESS=1
               else
@@ -508,33 +532,9 @@ jobs:
                   
                   # Try with simplified build
                   if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                      KBUILD_EXTMOD="$(pwd)" EXTRA_CFLAGS="$KCFLAGS" V=1 -f Kbuild.simple; then
+                      KBUILD_EXTMOD="$(pwd)" EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS -f Kbuild.simple; then
                       echo "✓ Forced compatibility build successful"
                       BUILD_SUCCESS=1
-                  else
-                      echo "All build methods failed, trying final fallback..."
-                      
-                      # Method 4: Individual object compilation
-                      echo "=== Attempting individual object compilation ==="
-                      
-                      # Try to build just the core objects that compiled successfully
-                      CORE_OBJECTS="main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o"
-                      
-                      for obj in $CORE_OBJECTS; do
-                          src_file="${obj%.o}.c"
-                          if [ -f "$src_file" ]; then
-                              echo "Building $obj from $src_file..."
-                              make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                                  EXTRA_CFLAGS="$KCFLAGS" "$obj" || echo "Failed to build $obj"
-                          fi
-                      done
-                      
-                      # Try to link manually if we have object files
-                      if ls *.o >/dev/null 2>&1; then
-                          echo "Attempting manual module linking..."
-                          # This is a complex fallback - may not work for all cases
-                          echo "Manual linking would require more complex kernel module linking logic"
-                      fi
                   fi
               fi
           fi
@@ -568,18 +568,46 @@ jobs:
               fi
           else
               echo "=== ALL BUILD METHODS FAILED ==="
-              echo "Available make targets:"
-              make help 2>/dev/null || echo "No help available"
-              echo "Generated directory contents:"
-              ls -la generated/ || echo "No generated directory"
-              echo "Current directory contents:"
-              ls -la .
-              echo "Object files found:"
-              find . -name "*.o" -type f
               exit 1
           fi
+          
+      - name: Validate built module
+        run: |
+          cd module/src
+          echo "=== MODULE VALIDATION ==="
+          if [ -f "wireguard.ko" ]; then
+            # Basic file checks
+            echo "Module size: $(stat -c%s wireguard.ko) bytes"
+            echo "Module type: $(file wireguard.ko)"
+            
+            # Check for required symbols
+            if ${{ matrix.toolchain }}nm wireguard.ko | grep -q "init_module\|cleanup_module"; then
+              echo "✓ Required module symbols found"
+            else
+              echo "⚠ Warning: Standard module symbols not found"
+            fi
+          else
+            echo "❌ Module file not found!"
+            exit 1
+          fi
+          
+      - name: Enhanced error reporting
+        if: failure()
+        run: |
+          echo "=== MODULE BUILD FAILURE ANALYSIS ==="
+          echo "Available disk space:"
+          df -h
+          echo "Memory usage:"
+          free -h
+          echo "Build directory contents:"
+          find module/src -name "*.log" -exec echo "=== {} ===" \; -exec tail -50 {} \; 2>/dev/null || echo "No logs found"
+          echo "Generated files:"
+          find module/src -name "*.ko" -o -name "*.o" | head -20
+          echo "Kernel headers check:"
+          ls -la headers/ | head -10
+          
       - name: Upload built module
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: module-${{ matrix.device }}-${{ matrix.version }}
           path: module/src/wireguard.ko
@@ -595,12 +623,14 @@ jobs:
             target: mips-linux-musl
           - arch: mipsel
             target: mipsel-linux-musl
+            
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
       - name: Setup cross-compilation environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl build-essential xz-utils
+          sudo apt-get install -y curl build-essential xz-utils file
           
           # Use system cross-compilation packages instead of musl.cc
           ARCH="${{ matrix.arch }}"
@@ -621,6 +651,7 @@ jobs:
           echo "Checking cross-compiler:"
           which ${TOOLCHAIN_PREFIX}-gcc || echo "Compiler not found in PATH"
           ${TOOLCHAIN_PREFIX}-gcc --version || echo "Compiler execution failed"
+          
       - name: Build tools
         env:
           TARGET: ${{ matrix.target }}
@@ -656,8 +687,22 @@ jobs:
           # Use system cross-compiler with static linking
           CC="${TOOLCHAIN_PREFIX}-gcc" LDFLAGS="-static" make -j$(nproc)
           ${TOOLCHAIN_PREFIX}-strip --strip-unneeded wg
+          
+      - name: Validate built tools
+        run: |
+          cd tools/src
+          echo "=== TOOLS VALIDATION ==="
+          if [ -f "wg" ]; then
+            echo "Tool size: $(stat -c%s wg) bytes"
+            echo "Tool type: $(file wg)"
+            echo "✓ wg tool built successfully"
+          else
+            echo "❌ wg tool not found!"
+            exit 1
+          fi
+          
       - name: Upload built tools
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: tools-${{ matrix.arch }}
           path: tools/src/wg
@@ -688,20 +733,25 @@ jobs:
           - device: e50
             version: 2
             arch: mipsel
+            
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y kmod dpkg-deb
+          apt-get install -y kmod dpkg-deb file
+          
       - name: Download module
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: module-${{ matrix.device }}-${{ matrix.version }}
+          
       - name: Download tools
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: tools-${{ matrix.arch }}
+          
       - name: Build package
         run: |
           export KERNEL=$(modinfo -F vermagic wireguard.ko | cut -d ' ' -f 1)
@@ -717,8 +767,9 @@ jobs:
           sed -i "s/PACKAGE_ARCH/${{ matrix.arch }}/g" pkg/DEBIAN/control
           dpkg-deb -b -Z gzip pkg
           mv pkg.deb ${{ matrix.device }}-v${{ matrix.version }}-v$MODULE_VERSION-v$TOOLS_VERSION.deb
+          
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: release_${{ matrix.device }}-v${{ matrix.version }}
           path: ${{ matrix.device }}-v${{ matrix.version }}-v${{ env.MODULE_VERSION }}-v${{ env.TOOLS_VERSION }}.deb
@@ -726,8 +777,16 @@ jobs:
   udm-prepare-buildroot:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
+      - name: Cache buildroot
+        uses: actions/cache@v4.0.0
+        with:
+          path: buildroot-2017.11.1
+          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v2
+          
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -752,30 +811,55 @@ jobs:
             cpio \
             curl \
             ca-certificates \
-            patch
+            patch \
+            file \
+            python3
+            
       - name: Download buildroot-2017.11.1
         run: |
-          curl -o buildroot.tar.bz2 https://buildroot.org/downloads/buildroot-2017.11.1.tar.bz2
-          tar -xf buildroot.tar.bz2
+          if [ ! -f "buildroot.tar.bz2" ]; then
+            curl -o buildroot.tar.bz2 https://buildroot.org/downloads/buildroot-2017.11.1.tar.bz2
+            tar -xf buildroot.tar.bz2
+          fi
+          
       - name: Download WireGuard module source
         run: |
-          curl -L -o wireguard-linux-compat-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
+          # Download with retry logic
+          for attempt in {1..3}; do
+            if curl -L -o wireguard-linux-compat-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz; then
+              break
+            fi
+            echo "Download attempt $attempt failed, retrying..."
+            sleep 5
+          done
           gunzip wireguard-linux-compat-$MODULE_VERSION.tar.gz
+          
       - name: Download WireGuard tools source
         run: |
-          curl -L -o wireguard-tools-$TOOLS_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v$TOOLS_VERSION.tar.gz
+          # Download with retry logic
+          for attempt in {1..3}; do
+            if curl -L -o wireguard-tools-$TOOLS_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v$TOOLS_VERSION.tar.gz; then
+              break
+            fi
+            echo "Download attempt $attempt failed, retrying..."
+            sleep 5
+          done
           gunzip wireguard-tools-$TOOLS_VERSION.tar.gz
+          
       - name: Copy packages
         run: cp -pr unifios/packages/* buildroot-2017.11.1/package
+        
       - name: Copy WireGuard source
         run: |
           cp wireguard-linux-compat-$MODULE_VERSION.tar buildroot-2017.11.1/package/wireguard-linux-compat/
           cp wireguard-tools-$TOOLS_VERSION.tar buildroot-2017.11.1/package/wireguard-tools/
+          
       - name: Set package versions
         run: |
           sed -i "s/PACKAGE_VERSION/$MODULE_VERSION/g" buildroot-2017.11.1/package/wireguard-linux-compat/wireguard-linux-compat.mk
           sed -i "s/PACKAGE_VERSION/$TOOLS_VERSION/g" buildroot-2017.11.1/package/wireguard-tools/wireguard-tools.mk
-      - name: Patches
+          
+      - name: Apply patches
         run: |
           patch -p0 <unifios/patches/wireguard-packages.patch
           patch -p0 <unifios/patches/openresolv-package.patch
@@ -783,6 +867,7 @@ jobs:
           cp unifios/patches/0001-m4-glibc-change-work-around.patch buildroot-2017.11.1/package/m4
           cp unifios/patches/0001-bison-glibc-change-work-around.patch buildroot-2017.11.1/package/bison
           cp unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch buildroot-2017.11.1/package/gcc/6.4.0
+          
       - name: Fix M4 SIGSTKSZ compatibility issue
         run: |
           cd buildroot-2017.11.1
@@ -838,6 +923,7 @@ EOF
             } 
             1' package/m4/m4.mk.bak > package/m4/m4.mk || echo "Could not modify m4.mk, continuing"
           fi
+          
       - name: Initialize buildroot
         run: |
           cd buildroot-2017.11.1
@@ -866,10 +952,12 @@ EOF
           make defconfig
           # Ensure output structure exists
           mkdir -p output/build output/target output/host output/staging
+          
       - name: Generate artifacts
         run: tar -cf buildroot.tar buildroot-2017.11.1
+        
       - name: Store buildroot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: buildroot
           path: buildroot.tar
@@ -878,12 +966,15 @@ EOF
     needs: [udm-prepare-buildroot]
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    
     strategy:
       matrix:
         base: [udm-1.9.0-10, udm-1.10.0-8, udm-1.10.0-12, udm-se-2.2.4, udr-2.2.12]
       fail-fast: false
+      
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -908,13 +999,18 @@ EOF
             cpio \
             curl \
             ca-certificates \
-            patch
+            patch \
+            file \
+            python3
+            
       - name: Restore buildroot
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: buildroot
+          
       - name: Extract buildroot
         run: tar -xf buildroot.tar
+        
       - name: Debug buildroot state
         run: |
           echo "Buildroot directory contents:"
@@ -923,6 +1019,7 @@ EOF
           ls -la unifios/bases/${{ matrix.base }}/ || echo "Base config directory not found"
           echo "Checking versions file:"
           cat unifios/bases/${{ matrix.base }}/versions.txt || echo "Versions file not found"
+          
       - name: Configure buildroot
         run: |
           cd buildroot-2017.11.1
@@ -957,6 +1054,7 @@ EOF
           
           # Configure buildroot
           make olddefconfig
+          
       - name: Verify buildroot setup
         run: |
           cd buildroot-2017.11.1
@@ -972,6 +1070,7 @@ EOF
           ls -la kernel-config || echo "No kernel-config file"
           echo "Testing make dry-run:"
           make -n help >/dev/null && echo "Make system functional" || echo "Make system has issues"
+          
       - name: Build wireguard module
         run: |
           mkdir -p modules
@@ -1001,8 +1100,13 @@ EOF
           cd buildroot-2017.11.1
           
           # Set host compiler flags for DTC compatibility
-          export HOSTCFLAGS="-fcommon"
-          export HOSTCXXFLAGS="-fcommon"
+          export HOSTCFLAGS="-fcommon -Wno-error"
+          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          
+          # Calculate optimal parallel jobs
+          NPROC=$(nproc)
+          PARALLEL_JOBS=$((NPROC * 3 / 4))
+          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
           
           (IFS=','
           for ver in $versions; do
@@ -1028,7 +1132,7 @@ EOF
             
             # Build with detailed error reporting and DTC fixes
             echo "Starting build for version $ver..."
-            if ! make wireguard-linux-compat-rebuild -j$(nproc) HOSTCFLAGS="-fcommon"; then
+            if ! make wireguard-linux-compat-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"; then
               echo "=== BUILD FAILED for version $ver ==="
               echo "Build directory contents:"
               ls -la output/build/ || echo "No build directory"
@@ -1066,6 +1170,7 @@ EOF
               echo "Warning: ip6table_raw.ko not found for version $ver"
             fi
           done)
+          
       - name: Verify built modules
         run: |
           echo "Built modules:"
@@ -1075,8 +1180,22 @@ EOF
             echo "Error: No modules were built"
             exit 1
           fi
+          
+      - name: Enhanced error reporting
+        if: failure()
+        run: |
+          echo "=== UDM MODULE BUILD FAILURE ANALYSIS ==="
+          echo "Available disk space:"
+          df -h
+          echo "Memory usage:"
+          free -h
+          echo "Buildroot directory:"
+          ls -la buildroot-2017.11.1/output/build/ | head -10
+          echo "Configuration files:"
+          ls -la unifios/bases/${{ matrix.base }}/
+          
       - name: Store modules
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: modules-${{ matrix.base }}
           path: modules
@@ -1087,8 +1206,10 @@ EOF
     timeout-minutes: 120
     env:
       BASE: udm-1.9.0-10
+      
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -1113,13 +1234,18 @@ EOF
             cpio \
             curl \
             ca-certificates \
-            patch
+            patch \
+            file \
+            python3
+            
       - name: Restore buildroot
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: buildroot
+          
       - name: Extract buildroot
         run: tar -xf buildroot.tar
+        
       - name: Configure buildroot
         run: |
           cd buildroot-2017.11.1
@@ -1154,31 +1280,51 @@ EOF
           
           # Configure buildroot
           make olddefconfig
+          
       - name: Build WireGuard tools
         run: |
           cd buildroot-2017.11.1
           # Set host compiler flags for DTC compatibility
-          export HOSTCFLAGS="-fcommon"
-          export HOSTCXXFLAGS="-fcommon"
-          make wireguard-tools-rebuild -j$(nproc) HOSTCFLAGS="-fcommon" # -> output/target/usr/bin/wg
+          export HOSTCFLAGS="-fcommon -Wno-error"
+          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          
+          # Calculate optimal parallel jobs
+          NPROC=$(nproc)
+          PARALLEL_JOBS=$((NPROC * 3 / 4))
+          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
+          
+          make wireguard-tools-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/usr/bin/wg
+          
       - name: Build bash
         run: |
           cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon"
-          export HOSTCXXFLAGS="-fcommon"
-          make bash-rebuild -j$(nproc) HOSTCFLAGS="-fcommon" # -> output/target/bin/bash
+          export HOSTCFLAGS="-fcommon -Wno-error"
+          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          NPROC=$(nproc)
+          PARALLEL_JOBS=$((NPROC * 3 / 4))
+          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
+          make bash-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/bin/bash
+          
       - name: Build resolvconf
         run: |
           cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon"
-          export HOSTCXXFLAGS="-fcommon"
-          make openresolv-rebuild -j$(nproc) HOSTCFLAGS="-fcommon" # -> output/target/sbin/resolvconf
+          export HOSTCFLAGS="-fcommon -Wno-error"
+          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          NPROC=$(nproc)
+          PARALLEL_JOBS=$((NPROC * 3 / 4))
+          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
+          make openresolv-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/sbin/resolvconf
+          
       - name: Build qrencode
         run: |
           cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon"
-          export HOSTCXXFLAGS="-fcommon"
-          make libqrencode-rebuild -j$(nproc) HOSTCFLAGS="-fcommon" # -> output/target/usr/bin/qrencode
+          export HOSTCFLAGS="-fcommon -Wno-error"
+          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          NPROC=$(nproc)
+          PARALLEL_JOBS=$((NPROC * 3 / 4))
+          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
+          make libqrencode-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/usr/bin/qrencode
+          
       - name: Collect tools
         run: |
           mkdir -p tools
@@ -1225,8 +1371,9 @@ EOF
             echo "Warning: wg-quick not found, checking available directories..."
             find output/build -name "linux.bash" -type f || echo "No wg-quick script found"
           fi
+          
       - name: Store tools
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: tools
           path: tools
@@ -1235,10 +1382,13 @@ EOF
     needs: [udm-build-tools, udm-build-modules]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
       - name: Prepare
         run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
+        
       - name: Restore modules from all builds
         run: |
           mkdir -p temp-modules
@@ -1246,49 +1396,58 @@ EOF
           for base in udm-1.9.0-10 udm-1.10.0-8 udm-1.10.0-12 udm-se-2.2.4 udr-2.2.12; do
             echo "Downloading modules for $base"
           done
+          
       - name: Download udm-1.9.0-10 modules
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: modules-udm-1.9.0-10
           path: temp-modules/udm-1.9.0-10
         continue-on-error: true
+        
       - name: Download udm-1.10.0-8 modules
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: modules-udm-1.10.0-8
           path: temp-modules/udm-1.10.0-8
         continue-on-error: true
+        
       - name: Download udm-1.10.0-12 modules
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: modules-udm-1.10.0-12
           path: temp-modules/udm-1.10.0-12
         continue-on-error: true
+        
       - name: Download udm-se-2.2.4 modules
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: modules-udm-se-2.2.4
           path: temp-modules/udm-se-2.2.4
         continue-on-error: true
+        
       - name: Download udr-2.2.12 modules
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: modules-udr-2.2.12
           path: temp-modules/udr-2.2.12
         continue-on-error: true
+        
       - name: Consolidate modules
         run: |
           # Move all modules to the package directory
           find temp-modules -name "*.ko" -exec cp {} package/wireguard/modules/ \;
           echo "Consolidated modules:"
           ls -la package/wireguard/modules/
+          
       - name: Restore tools
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.1
         with:
           name: tools
           path: package/wireguard/tools
+          
       - name: Add setup
         run: cp unifios/setup_wireguard.sh package/wireguard/
+        
       - name: Fix permissions
         run: |
           if [ -f "package/wireguard/tools/resolvconf.conf" ]; then
@@ -1296,10 +1455,12 @@ EOF
           fi
           chmod +x package/wireguard/tools/* package/wireguard/setup_wireguard.sh 2>/dev/null || true
           sudo chown -R root:root package/wireguard
+          
       - name: Package
         run: tar -C package -czf UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz ./
+        
       - name: Store package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: release_unifios
           path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
@@ -1313,7 +1474,8 @@ EOF
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
+      
       - name: Create Release
         id: create_release
         uses: fossoreslp/release-artifacts@v1
