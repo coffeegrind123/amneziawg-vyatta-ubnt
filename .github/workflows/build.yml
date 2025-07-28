@@ -14,6 +14,8 @@ env:
   FIRMWARE_ER_v1: "v1.10.11"
   FIRMWARE_ER_v2: "v2.0.9"
   FIRMWARE_UGW: "4.4.50"
+  # Force Node.js 16 to avoid GLIBC compatibility issues with older containers
+  ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
 
 jobs:
   headers:
@@ -44,7 +46,7 @@ jobs:
             image: mipsel-kernel
 
     steps:
-      - uses: actions/checkout@v3  # Use v3 to avoid Node.js 20 GLIBC issues
+      - uses: actions/checkout@v4
       - name: Build headers
         run: |
           mkdir /headers
@@ -66,7 +68,7 @@ jobs:
           find $(find arch -name include -type d -print) -type f | cpio -pdm "/headers"
           tar -cf headers.tar /headers/
       - name: Store headers
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
           path: headers.tar
@@ -78,7 +80,7 @@ jobs:
       image: buildpack-deps:focal
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Download module source
         run: |
           curl -L -o wireguard-linux-compat-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
@@ -87,7 +89,7 @@ jobs:
           sed -i 's/ --dirty//g' src/Makefile
           patch -p1 < ../siphash_no_fallthrough.patch
       - name: Upload module source
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: module-src
           path: module
@@ -123,14 +125,14 @@ jobs:
             image: mtk-kernel
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Restore module source
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: module-src
           path: module
       - name: Restore headers
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
       - name: Build module
@@ -140,7 +142,7 @@ jobs:
           make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module
           ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
       - name: Upload built module
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: module-${{ matrix.device }}-${{ matrix.version }}
           path: module/src/wireguard.ko
@@ -161,7 +163,7 @@ jobs:
             target: mipsel-linux-musl
             image: lochnair/musl-buildenv:mipsel # Will be: mipsel-tools
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Verify container environment
         run: |
           echo "Container architecture: $(uname -m)"
@@ -181,7 +183,7 @@ jobs:
           CC="$ARCH-linux-musl-gcc" LDLIBS="-static" make -j$(nproc)
           $ARCH-linux-musl-strip --strip-unneeded wg
       - name: Upload built tools
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: tools-${{ matrix.arch }}
           path: tools/src/wg
@@ -213,13 +215,13 @@ jobs:
             version: 2
             arch: mipsel
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Download module
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: module-${{ matrix.device }}-${{ matrix.version }}
       - name: Download tools
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: tools-${{ matrix.arch }}
       - name: Build package
@@ -240,7 +242,7 @@ jobs:
           dpkg-deb -b -Z gzip pkg
           mv pkg.deb ${{ matrix.device }}-v${{ matrix.version }}-v$MODULE_VERSION-v$TOOLS_VERSION.deb
       - name: Upload package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release_${{ matrix.device }}-v${{ matrix.version }}
           path: ${{ matrix.device }}-v${{ matrix.version }}-v${{ env.MODULE_VERSION }}-v${{ env.TOOLS_VERSION }}.deb
@@ -249,7 +251,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Download buildroot-2017.11.1
         run: |
           curl -o buildroot.tar.bz2 https://buildroot.org/downloads/buildroot-2017.11.1.tar.bz2
@@ -295,7 +297,7 @@ jobs:
       - name: Generate artifacts
         run: tar -cf buildroot.tar buildroot-2017.11.1
       - name: Store buildroot
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: buildroot
           path: buildroot.tar
@@ -309,9 +311,9 @@ jobs:
         base: [udm-1.9.0-10, udm-1.10.0-8, udm-1.10.0-12, udm-se-2.2.4, udr-2.2.12]
       fail-fast: false  # Continue with other builds if one fails
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Restore buildroot
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: buildroot
       - name: Extract buildroot
@@ -422,7 +424,7 @@ jobs:
             exit 1
           fi
       - name: Store modules
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: modules-${{ matrix.base }}
           path: modules
@@ -434,9 +436,9 @@ jobs:
     env:
       BASE: udm-1.9.0-10
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Restore buildroot
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: buildroot
       - name: Extract buildroot
@@ -506,7 +508,7 @@ jobs:
             echo "Warning: wg-quick not found, continuing"
           fi
       - name: Store tools
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: tools
           path: tools
@@ -516,11 +518,11 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Prepare
         run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
       - name: Restore modules
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           pattern: modules-*
           path: temp-modules
