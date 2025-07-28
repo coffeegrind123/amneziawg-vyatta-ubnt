@@ -309,6 +309,73 @@ jobs:
           cp unifios/patches/0001-m4-glibc-change-work-around.patch buildroot-2017.11.1/package/m4
           cp unifios/patches/0001-bison-glibc-change-work-around.patch buildroot-2017.11.1/package/bison
           cp unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch buildroot-2017.11.1/package/gcc/6.4.0
+      - name: Install system dependencies for buildroot compatibility
+        run: |
+          # Install system tools that buildroot needs to avoid building host tools
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            m4 \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            kmod \
+            lzip \
+            ccache \
+            bison \
+            flex \
+            gettext \
+            libncurses5-dev \
+            rsync \
+            unzip \
+            bc \
+            wget \
+            cpio
+      - name: Fix M4 SIGSTKSZ compatibility issue
+        run: |
+          # Fix the SIGSTKSZ compatibility issue with newer glibc
+          cd buildroot-2017.11.1
+          # Create a patch for the M4 c-stack.c file to handle the SIGSTKSZ issue
+          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << '          # Add the patch to the M4 package makefile so it gets applied
+          if ! grep -q "0002-fix-sigstksz-glibc-compatibility.patch" package/m4/m4.mk; then
+            sed -i '/M4_PATCH = /a\\tpackage/m4/0002-fix-sigstksz-glibc-compatibility.patch' package/m4/m4.mk || echo "Could not modify m4.mk, continuing"
+          fi'
+--- a/lib/c-stack.c
++++ b/lib/c-stack.c
+@@ -50,11 +50,17 @@
+ #if ! HAVE_STACK_OVERFLOW_HANDLING
+ 
+ # include <sigsegv.h>
+-
+-#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
++#elif HAVE_LIBSIGSEGV
+ 
+ /* libsigsegv 2.6 through 2.8 have a bug where some architectures use
+    more than the Linux default of an 8k alternate stack when deciding
+    if a fault was caused by stack overflow.  */
++
++# ifdef SIGSTKSZ
++#  if SIGSTKSZ < 16384
++#   define STACKSIZE 16384
++#  else
++#   define STACKSIZE SIGSTKSZ
++#  endif
++# else
++#  define STACKSIZE 16384
++# endif
+-# define STACKSIZE 16384
+-
+-#else
++#else /* !HAVE_LIBSIGSEGV */
+ 
+ # define STACKSIZE SIGSTKSZ
+-
+-#endif
++#endif /* !HAVE_LIBSIGSEGV */
+ 
+ #if HAVE_STACK_OVERFLOW_HANDLING
+EOF
       - name: Initialize buildroot
         run: |
           cd buildroot-2017.11.1
@@ -461,6 +528,7 @@ jobs:
           (IFS=','
           for ver in $versions; do
             echo "=== Building version $ver ==="
+            
             # Verify buildroot state before build
             if [ ! -f "output/.br-external.mk" ]; then
               echo "Error: .br-external.mk missing before build"
@@ -489,6 +557,11 @@ jobs:
               find output -name "*.log" -exec echo "=== {} ===" \; -exec tail -20 {} \; 2>/dev/null || echo "No logs found"
               echo "Makefile targets available:"
               make help | grep wireguard || echo "No wireguard targets found"
+              # Show specific error details
+              if [ -f "output/build/build-time.log" ]; then
+                echo "=== Build time log ==="
+                tail -50 output/build/build-time.log
+              fi
               exit 1
             fi
             
