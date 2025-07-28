@@ -202,24 +202,18 @@ jobs:
           sed -i 's/ --dirty//g' src/Makefile
           patch -p1 < ../siphash_no_fallthrough.patch
           
-          # Generate version and build files
           cd src
           if [ -f "../scripts/version.sh" ]; then
             ../scripts/version.sh > version.h
           fi
           
-          # Create generated directory and files if they don't exist
           mkdir -p generated
           
-          # Create a minimal generated/Makefile if it doesn't exist
           if [ ! -f "generated/Makefile" ]; then
-            cat > generated/Makefile << 'EOF'
-# Generated Makefile for WireGuard module
-obj-m += wireguard.o
-EOF
+            echo "# Generated Makefile for WireGuard module" > generated/Makefile
+            echo "obj-m += wireguard.o" >> generated/Makefile
           fi
           
-          # Check what files we have in the module
           echo "=== Module source structure ==="
           find . -name "Makefile*" -o -name "*.mk" | head -10
           ls -la .
