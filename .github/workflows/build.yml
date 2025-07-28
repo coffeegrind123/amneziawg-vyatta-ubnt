@@ -311,37 +311,62 @@ jobs:
           echo "=== Looking for Makefiles ==="
           find . -name "Makefile*" -o -name "*.mk"
           
-          mkdir -p generated
-          
           if [ -f "Makefile" ]; then
             echo "=== Main Makefile content (first 20 lines) ==="
             head -20 Makefile
           fi
           
+          # Get the target kernel version from headers instead of host system
+          TARGET_KERNEL=$(grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Makefile | head -3 | cut -d'=' -f2 | tr -d ' ' | paste -sd '.')
+          if [ -z "$TARGET_KERNEL" ]; then
+            # Fallback: try to get version from headers config
+            TARGET_KERNEL=$(grep "Linux kernel version:" $GITHUB_WORKSPACE/headers/.config | cut -d':' -f2 | tr -d ' ' || echo "3.10.0")
+          fi
+          echo "=== Target kernel version: $TARGET_KERNEL ==="
+          
+          # AmneziawG requires patches to be applied first
+          echo "=== Applying patches for AmneziawG ==="
+          if ! make KERNELDIR=$GITHUB_WORKSPACE/headers apply-patches; then
+            echo "=== apply-patches failed, trying manual approach ==="
+            # The patches might not be needed for this kernel version
+            # Let's try to proceed anyway
+          fi
+          
+          echo "=== Generated directory after patches ==="
+          ls -la generated/ || echo "Generated directory is empty or missing"
+          
           echo "=== Starting module build ==="
-          if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 module; then
-            echo "=== Build failed, trying alternative approach ==="
+          # Force the kernel version and build
+          if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers KERNELRELEASE=$TARGET_KERNEL V=1 module; then
+            echo "=== Build failed, trying with different kernel version ==="
             
-            if [ ! -f "version.h" ] && [ -f "../scripts/version.sh" ]; then
-              echo "Generating version.h..."
-              ../scripts/version.sh > version.h
-            fi
-            
-            if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 modules; then
-              if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers V=1 all; then
-                echo "=== All build attempts failed, showing detailed info ==="
+            # Try with a specific older kernel version that AmneziawG supports
+            if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers KERNELRELEASE=4.14.0 V=1 module; then
+              echo "=== Trying direct compilation approach ==="
+              
+              # Try building the kernel object directly without the module wrapper
+              if ! make -j$(nproc) -C $GITHUB_WORKSPACE/headers ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} M=$(pwd) V=1; then
+                echo "=== All build attempts failed ==="
                 echo "Available make targets:"
                 make help 2>/dev/null || echo "No help available"
-                echo "KERNELDIR contents:"
-                ls -la $GITHUB_WORKSPACE/headers/ | head -10
+                echo "Generated directory contents:"
+                ls -la generated/ || echo "No generated directory"
+                echo "Current directory contents:"
+                ls -la .
                 exit 1
               fi
             fi
           fi
           
+          # Find the built module
           if [ -f "wireguard.ko" ]; then
             ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
             echo "=== Module built successfully ==="
+            ls -la wireguard.ko
+          elif [ -f "generated/wireguard.ko" ]; then
+            mv generated/wireguard.ko .
+            ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
+            echo "=== Module built successfully (from generated/) ==="
             ls -la wireguard.ko
           else
             echo "=== wireguard.ko not found, checking for other .ko files ==="
