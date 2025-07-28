@@ -17,7 +17,7 @@ env:
 
 jobs:
   headers:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     container:
       image: ghcr.io/fossoreslp/ubnt-build:${{ matrix.image }}
@@ -73,7 +73,7 @@ jobs:
           path: headers.tar
 
   module-prepare:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     container:
       image: buildpack-deps:focal
@@ -95,7 +95,7 @@ jobs:
 
   module:
     needs: [module-prepare, headers]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     container:
       image: ghcr.io/fossoreslp/ubnt-build:${{ matrix.image }}
@@ -148,7 +148,7 @@ jobs:
           path: module/src/wireguard.ko
 
   tools:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     strategy:
@@ -234,7 +234,7 @@ jobs:
 
   package:
     needs: [module, tools]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     container:
       image: debian
@@ -292,7 +292,7 @@ jobs:
           path: ${{ matrix.device }}-v${{ matrix.version }}-v${{ env.MODULE_VERSION }}-v${{ env.TOOLS_VERSION }}.deb
 
   udm-prepare-buildroot:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -430,7 +430,7 @@ EOF
 
   udm-build-modules:
     needs: [udm-prepare-buildroot]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     strategy:
       matrix:
@@ -607,7 +607,7 @@ EOF
 
   udm-build-tools:
     needs: [udm-prepare-buildroot]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       BASE: udm-1.9.0-10
@@ -723,7 +723,7 @@ EOF
 
   udm-package:
     needs: [udm-build-tools, udm-build-modules]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4  # No container
@@ -796,7 +796,7 @@ EOF
           path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
 
   release:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs:
       - package
