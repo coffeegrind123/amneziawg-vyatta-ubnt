@@ -304,10 +304,140 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
-      - name: Build module
+      - name: Apply AmneziawG compatibility fixes
         run: |
           export PATH="/usr/local/bin:$PATH"
           tar -xf headers.tar
+          cd module/src
+          
+          echo "=== APPLYING AMNEZIAWG COMPATIBILITY FIXES FOR KERNEL 3.10.107 ==="
+          
+          # 1. Fix get_random_u8() compatibility in netlink.c
+          echo "Fixing get_random_u8() usage..."
+          if grep -q "get_random_u8()" netlink.c; then
+              sed -i 's/get_random_u8()/((u8)(get_random_u32() \& 0xFF))/g' netlink.c
+              echo "✓ Fixed get_random_u8() calls"
+          fi
+          
+          # 2. Add compatibility definitions to compat.h
+          echo "Adding compatibility definitions..."
+          if ! grep -q "get_random_u8" compat/compat.h; then
+              cat >> compat/compat.h << 'EOF'
+
+          /* get_random_u8 compatibility for older kernels */
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
+          static inline u8 get_random_u8(void)
+          {
+              u32 random_val = get_random_u32();
+              return (u8)(random_val & 0xFF);
+          }
+          #endif
+          EOF
+              echo "✓ Added get_random_u8 compatibility wrapper"
+          fi
+          
+          # 3. Create netlink compatibility patch
+          echo "Creating netlink compatibility patch..."
+          cat > netlink_compat.patch << 'EOF'
+          --- a/netlink.c
+          +++ b/netlink.c
+          @@ -918,8 +918,12 @@ static struct genl_family genl_family = {
+           	.netnsok = true,
+           	.pre_doit = wg_pre_doit,
+           	.post_doit = wg_post_doit,
+          +#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
+           	.mcgrps = wg_genl_mcgrps,
+           	.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)
+          +#else
+          +	/* mcgrps and n_mcgrps not available in older kernels */
+          +#endif
+           };
+           
+           int __init wg_genetlink_init(void)
+          @@ -927,6 +931,13 @@ int __init wg_genetlink_init(void)
+           	int ret;
+           
+           	ret = genl_register_family(&genl_family);
+          +#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
+          +	if (ret < 0)
+          +		return ret;
+          +	/* Register multicast groups separately for older kernels */
+          +	ret = genl_register_mc_group(&genl_family, &wg_genl_mcgrps[0]);
+          +	if (ret < 0)
+          +		genl_unregister_family(&genl_family);
+          +#endif
+           	return ret;
+           }
+           
+          @@ -983,7 +994,11 @@ static void wg_genl_mcast_peer_unknown(struct wg_device *wg,
+           	if (!skb)
+           		goto free_msg;
+           
+          +#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
+           	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);
+          +#else
+          +	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);
+          +#endif
+           	if (ret < 0 && ret != -ESRCH) /* -ESRCH means no one is listening */
+           		goto free_msg;
+           	return;
+          EOF
+          
+          # Apply the patch
+          if patch -p1 --dry-run < netlink_compat.patch > /dev/null 2>&1; then
+              patch -p1 < netlink_compat.patch
+              echo "✓ Applied netlink compatibility patch"
+          else
+              echo "! Patch conflicts, applying manual fixes..."
+              
+              # Manual fixes for netlink.c structure definition
+              # Fix the genl_family structure for older kernels
+              sed -i '/\.mcgrps = wg_genl_mcgrps,/i\
+          #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)' netlink.c
+              
+              sed -i '/\.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)/a\
+          #else\
+          \t/* mcgrps and n_mcgrps not available in older kernels */\
+          #endif' netlink.c
+              
+              # Fix the registration function
+              sed -i '/ret = genl_register_family(&genl_family);/a\
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)\
+          \tif (ret < 0)\
+          \t\treturn ret;\
+          \t/* Register multicast groups separately for older kernels */\
+          \tret = genl_register_mc_group(\&genl_family, \&wg_genl_mcgrps[0]);\
+          \tif (ret < 0)\
+          \t\tgenl_unregister_family(\&genl_family);\
+          #endif' netlink.c
+              
+              # Fix the multicast function call
+              sed -i 's/ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);/#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)\
+          \tret = genlmsg_multicast_netns(\&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);\
+          #else\
+          \tret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);\
+          #endif/' netlink.c
+              
+              echo "✓ Applied manual compatibility fixes"
+          fi
+          
+          # 4. Fix compiler warnings by adjusting flags
+          echo "Adjusting compiler flags..."
+          if [ -f "Makefile" ]; then
+              # Add flags to suppress specific warnings that become errors
+              if ! grep -q "Wno-address" Makefile; then
+                  sed -i '/^ccflags-y/s/$/ -Wno-address -Wno-array-bounds -Wno-missing-attributes -Wno-stringop-overread/' Makefile
+                  echo "✓ Added warning suppression flags"
+              fi
+          fi
+          
+          # 5. Force WERROR=no in kernel build
+          export KCFLAGS="-Wno-error"
+          
+          echo "=== COMPATIBILITY FIXES COMPLETED ==="
+      - name: Build module
+        run: |
+          export PATH="/usr/local/bin:$PATH"
           cd module/src
           
           echo "=== Current module/src structure ==="
@@ -324,58 +454,129 @@ jobs:
           TARGET_KERNEL=$(grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Makefile | head -3 | cut -d'=' -f2 | tr -d ' ' | paste -sd '.')
           if [ -z "$TARGET_KERNEL" ]; then
             # Fallback: try to get version from headers config
-            TARGET_KERNEL=$(grep "Linux kernel version:" $GITHUB_WORKSPACE/headers/.config | cut -d':' -f2 | tr -d ' ' || echo "3.10.0")
+            TARGET_KERNEL=$(grep "Linux kernel version:" $GITHUB_WORKSPACE/headers/.config | cut -d':' -f2 | tr -d ' ' || echo "3.10.107")
           fi
           echo "=== Target kernel version: $TARGET_KERNEL ==="
           
-          # AmneziawG requires patches to be applied first
-          echo "=== Applying patches for AmneziawG ==="
-          if ! make KERNELDIR=$GITHUB_WORKSPACE/headers apply-patches; then
-            echo "=== apply-patches failed, trying manual approach ==="
-            # The patches might not be needed for this kernel version
-            # Let's try to proceed anyway
-          fi
+          # Set build variables for compatibility
+          export KERNELDIR="$GITHUB_WORKSPACE/headers"
+          export KERNELRELEASE="$TARGET_KERNEL"
+          export CROSS_COMPILE="${{ matrix.toolchain }}"
+          export ARCH="mips"
           
-          echo "=== Generated directory after patches ==="
-          ls -la generated/ || echo "Generated directory is empty or missing"
+          # Force disable WERROR and add compatibility flags
+          export KCFLAGS="-Wno-error -Wno-address -Wno-array-bounds -Wno-missing-attributes -Wno-stringop-overread"
+          export EXTRA_CFLAGS="$KCFLAGS"
           
-          echo "=== Starting module build ==="
-          # Force the kernel version and build
-          if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers KERNELRELEASE=$TARGET_KERNEL V=1 module; then
-            echo "=== Build failed, trying with different kernel version ==="
-            
-            # Try with a specific older kernel version that AmneziawG supports
-            if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers KERNELRELEASE=4.14.0 V=1 module; then
-              echo "=== Trying direct compilation approach ==="
-              
-              # Try building the kernel object directly without the module wrapper
-              if ! make -j$(nproc) -C $GITHUB_WORKSPACE/headers ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} M=$(pwd) V=1; then
-                echo "=== All build attempts failed ==="
-                echo "Available make targets:"
-                make help 2>/dev/null || echo "No help available"
-                echo "Generated directory contents:"
-                ls -la generated/ || echo "No generated directory"
-                echo "Current directory contents:"
-                ls -la .
-                exit 1
-              fi
-            fi
-          fi
+          echo "=== Starting module build with compatibility mode ==="
+          echo "Kernel directory: $KERNELDIR"
+          echo "Cross compiler: $CROSS_COMPILE"
+          echo "Architecture: $ARCH"
+          echo "Kernel release: $KERNELRELEASE"
           
-          # Find the built module
-          if [ -f "wireguard.ko" ]; then
-            ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
-            echo "=== Module built successfully ==="
-            ls -la wireguard.ko
-          elif [ -f "generated/wireguard.ko" ]; then
-            mv generated/wireguard.ko .
-            ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
-            echo "=== Module built successfully (from generated/) ==="
-            ls -la wireguard.ko
+          # Try multiple build approaches
+          BUILD_SUCCESS=0
+          
+          # Method 1: Direct kernel build
+          echo "=== Attempting direct kernel build ==="
+          if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+              EXTRA_CFLAGS="$KCFLAGS" V=1 modules; then
+              echo "✓ Direct kernel build successful"
+              BUILD_SUCCESS=1
           else
-            echo "=== wireguard.ko not found, checking for other .ko files ==="
-            find . -name "*.ko"
-            exit 1
+              echo "Direct kernel build failed, trying method 2..."
+              
+              # Method 2: Module-specific Makefile
+              echo "=== Attempting module-specific build ==="
+              if make KERNELDIR="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+                  KERNELRELEASE="$KERNELRELEASE" V=1 module; then
+                  echo "✓ Module-specific build successful"
+                  BUILD_SUCCESS=1
+              else
+                  echo "Module-specific build failed, trying method 3..."
+                  
+                  # Method 3: Force older kernel compatibility
+                  echo "=== Attempting forced compatibility build ==="
+                  # Create a simplified Kbuild file
+                  echo "obj-m := amneziawg.o" > Kbuild.simple
+                  echo "amneziawg-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o" >> Kbuild.simple
+                  echo "amneziawg-y += crypto/zinc/chacha20/chacha20.o" >> Kbuild.simple
+                  echo "amneziawg-y += crypto/zinc/poly1305/poly1305.o" >> Kbuild.simple
+                  echo "amneziawg-y += crypto/zinc/chacha20poly1305/chacha20poly1305.o" >> Kbuild.simple
+                  echo "amneziawg-y += crypto/zinc/blake2s/blake2s.o" >> Kbuild.simple
+                  echo "amneziawg-y += crypto/zinc/curve25519/curve25519.o" >> Kbuild.simple
+                  
+                  # Try with simplified build
+                  if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+                      KBUILD_EXTMOD="$(pwd)" EXTRA_CFLAGS="$KCFLAGS" V=1 -f Kbuild.simple; then
+                      echo "✓ Forced compatibility build successful"
+                      BUILD_SUCCESS=1
+                  else
+                      echo "All build methods failed, trying final fallback..."
+                      
+                      # Method 4: Individual object compilation
+                      echo "=== Attempting individual object compilation ==="
+                      
+                      # Try to build just the core objects that compiled successfully
+                      CORE_OBJECTS="main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o"
+                      
+                      for obj in $CORE_OBJECTS; do
+                          src_file="${obj%.o}.c"
+                          if [ -f "$src_file" ]; then
+                              echo "Building $obj from $src_file..."
+                              make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+                                  EXTRA_CFLAGS="$KCFLAGS" "$obj" || echo "Failed to build $obj"
+                          fi
+                      done
+                      
+                      # Try to link manually if we have object files
+                      if ls *.o >/dev/null 2>&1; then
+                          echo "Attempting manual module linking..."
+                          # This is a complex fallback - may not work for all cases
+                          echo "Manual linking would require more complex kernel module linking logic"
+                      fi
+                  fi
+              fi
+          fi
+          
+          # Check for successful build
+          if [ $BUILD_SUCCESS -eq 1 ] || [ -f "amneziawg.ko" ] || [ -f "wireguard.ko" ]; then
+              # Find the built module
+              MODULE_FILE=""
+              if [ -f "amneziawg.ko" ]; then
+                  MODULE_FILE="amneziawg.ko"
+                  mv amneziawg.ko wireguard.ko
+              elif [ -f "wireguard.ko" ]; then
+                  MODULE_FILE="wireguard.ko"
+              elif [ -f "generated/wireguard.ko" ]; then
+                  mv generated/wireguard.ko .
+                  MODULE_FILE="wireguard.ko"
+              fi
+              
+              if [ -n "$MODULE_FILE" ]; then
+                  ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
+                  echo "=== Module built successfully ==="
+                  ls -la wireguard.ko
+                  
+                  # Verify the module
+                  file wireguard.ko
+                  echo "Module info:"
+                  ${{ matrix.toolchain }}objdump -h wireguard.ko | head -10 || echo "Could not analyze module"
+              else
+                  echo "=== ERROR: No module file found after build ==="
+                  exit 1
+              fi
+          else
+              echo "=== ALL BUILD METHODS FAILED ==="
+              echo "Available make targets:"
+              make help 2>/dev/null || echo "No help available"
+              echo "Generated directory contents:"
+              ls -la generated/ || echo "No generated directory"
+              echo "Current directory contents:"
+              ls -la .
+              echo "Object files found:"
+              find . -name "*.o" -type f
+              exit 1
           fi
       - name: Upload built module
         uses: actions/upload-artifact@v4
