@@ -14,8 +14,6 @@ env:
   FIRMWARE_ER_v1: "v1.10.11"
   FIRMWARE_ER_v2: "v2.0.9"
   FIRMWARE_UGW: "4.4.50"
-  # Handle Node.js compatibility issues in containers
-  ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
 
 jobs:
   headers:
@@ -23,10 +21,8 @@ jobs:
     timeout-minutes: 60
     container:
       image: ghcr.io/fossoreslp/ubnt-build:${{ matrix.image }}
-      options: --user root
       env:
         CROSS: ${{ matrix.toolchain }}
-      options: --user root
 
     strategy:
       matrix:
@@ -48,31 +44,7 @@ jobs:
             image: mipsel-kernel
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-      - name: Handle container compatibility
-        run: |
-          # Handle Alpine/musl compatibility
-          if command -v apk >/dev/null 2>&1; then
-            echo "Alpine container detected"
-            # Install compatibility packages if needed
-            apk update || echo "apk update failed, continuing"
-          fi
-      - name: Handle container compatibility
-        run: |
-          export DEBIAN_FRONTEND=noninteractive
-          if command -v apt-get >/dev/null 2>&1; then
-            apt-get update || echo "apt update failed, continuing"
-          fi
-      - name: Handle container compatibility
-        run: |
-          # Ensure container has necessary compatibility
-          export DEBIAN_FRONTEND=noninteractive
-          # Update package manager if needed
-          if command -v apt-get >/dev/null 2>&1; then
-            apt-get update || echo "apt update failed, continuing"
-          fi
+      - uses: actions/checkout@v3  # Use v3 to avoid Node.js 20 GLIBC issues
       - name: Build headers
         run: |
           mkdir /headers
@@ -94,7 +66,7 @@ jobs:
           find $(find arch -name include -type d -print) -type f | cpio -pdm "/headers"
           tar -cf headers.tar /headers/
       - name: Store headers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
           path: headers.tar
@@ -103,13 +75,10 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     container:
-      image: buildpack-deps:jammy
-      options: --user root
+      image: buildpack-deps:focal
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v3
       - name: Download module source
         run: |
           curl -L -o wireguard-linux-compat-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
@@ -118,7 +87,7 @@ jobs:
           sed -i 's/ --dirty//g' src/Makefile
           patch -p1 < ../siphash_no_fallthrough.patch
       - name: Upload module source
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: module-src
           path: module
@@ -154,16 +123,14 @@ jobs:
             image: mtk-kernel
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v3
       - name: Restore module source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: module-src
           path: module
       - name: Restore headers
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
       - name: Build module
@@ -173,7 +140,7 @@ jobs:
           make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module
           ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
       - name: Upload built module
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: module-${{ matrix.device }}-${{ matrix.version }}
           path: module/src/wireguard.ko
@@ -183,7 +150,6 @@ jobs:
     timeout-minutes: 60
     container:
       image: ${{ matrix.image }}
-      options: --user root
 
     strategy:
       matrix:
@@ -195,9 +161,7 @@ jobs:
             target: mipsel-linux-musl
             image: lochnair/musl-buildenv:mipsel # Will be: mipsel-tools
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v3
       - name: Verify container environment
         run: |
           echo "Container architecture: $(uname -m)"
@@ -217,7 +181,7 @@ jobs:
           CC="$ARCH-linux-musl-gcc" LDLIBS="-static" make -j$(nproc)
           $ARCH-linux-musl-strip --strip-unneeded wg
       - name: Upload built tools
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: tools-${{ matrix.arch }}
           path: tools/src/wg
@@ -227,8 +191,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     container:
-      image: debian:bullseye
-      options: --user root
+      image: debian
 
     strategy:
       matrix:
@@ -250,15 +213,13 @@ jobs:
             version: 2
             arch: mipsel
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v3
       - name: Download module
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: module-${{ matrix.device }}-${{ matrix.version }}
       - name: Download tools
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: tools-${{ matrix.arch }}
       - name: Build package
@@ -279,7 +240,7 @@ jobs:
           dpkg-deb -b -Z gzip pkg
           mv pkg.deb ${{ matrix.device }}-v${{ matrix.version }}-v$MODULE_VERSION-v$TOOLS_VERSION.deb
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: release_${{ matrix.device }}-v${{ matrix.version }}
           path: ${{ matrix.device }}-v${{ matrix.version }}-v${{ env.MODULE_VERSION }}-v${{ env.TOOLS_VERSION }}.deb
@@ -288,9 +249,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v3
       - name: Download buildroot-2017.11.1
         run: |
           curl -o buildroot.tar.bz2 https://buildroot.org/downloads/buildroot-2017.11.1.tar.bz2
@@ -329,13 +288,14 @@ jobs:
           # Create output directory structure
           mkdir -p output/build
           mkdir -p output/target
+          mkdir -p output/host
           # Initialize BR_EXTERNAL
           echo "# Generated by prepare script" > output/.br-external.mk
           echo "BR2_EXTERNAL :=" >> output/.br-external.mk
       - name: Generate artifacts
         run: tar -cf buildroot.tar buildroot-2017.11.1
       - name: Store buildroot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: buildroot
           path: buildroot.tar
@@ -347,12 +307,11 @@ jobs:
     strategy:
       matrix:
         base: [udm-1.9.0-10, udm-1.10.0-8, udm-1.10.0-12, udm-se-2.2.4, udr-2.2.12]
+      fail-fast: false  # Continue with other builds if one fails
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v3
       - name: Restore buildroot
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: buildroot
       - name: Extract buildroot
@@ -383,23 +342,8 @@ jobs:
           cd buildroot-2017.11.1
           # Ensure buildroot is properly configured
           make olddefconfig
-          # Create output directory structure if it doesn't exist
-          mkdir -p output/build
-          mkdir -p output/target
-          mkdir -p output/host
-          # Ensure BR_EXTERNAL makefile exists
-          if [ ! -f "output/.br-external.mk" ]; then
-            echo "# Generated by configure script" > output/.br-external.mk
-            echo "BR2_EXTERNAL :=" >> output/.br-external.mk
-          fi
-      - name: Prepare buildroot environment
-        run: |
-          cd buildroot-2017.11.1
-          # Initialize buildroot if needed
-          make prepare || echo "Prepare step failed, continuing..."
-          # Verify critical files
+          # Verify the external makefile exists
           ls -la output/.br-external.mk || echo "Warning: .br-external.mk not found"
-          ls -la .config || echo "Warning: .config not found"
       - name: Build wireguard module
         run: |
           mkdir -p modules
@@ -443,7 +387,6 @@ jobs:
               echo "Build failed for version $ver"
               # Show some debug info
               ls -la output/build/ || echo "No build directory"
-              tail -n 50 output/build/build-time.log || echo "No build log"
               exit 1
             fi
             
@@ -479,7 +422,7 @@ jobs:
             exit 1
           fi
       - name: Store modules
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: modules-${{ matrix.base }}
           path: modules
@@ -491,11 +434,9 @@ jobs:
     env:
       BASE: udm-1.9.0-10
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v3
       - name: Restore buildroot
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: buildroot
       - name: Extract buildroot
@@ -506,12 +447,6 @@ jobs:
           cp unifios/bases/${{ env.BASE }}/kernel-config buildroot-2017.11.1/kernel-config
           cd buildroot-2017.11.1
           make olddefconfig
-          mkdir -p output/build output/target output/host
-          # Ensure BR_EXTERNAL makefile exists
-          if [ ! -f "output/.br-external.mk" ]; then
-            echo "# Generated by configure script" > output/.br-external.mk
-            echo "BR2_EXTERNAL :=" >> output/.br-external.mk
-          fi
       - name: Build WireGuard tools
         run: |
           cd buildroot-2017.11.1
@@ -571,7 +506,7 @@ jobs:
             echo "Warning: wg-quick not found, continuing"
           fi
       - name: Store tools
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: tools
           path: tools
@@ -581,13 +516,11 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v3
       - name: Prepare
         run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
       - name: Restore modules
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           pattern: modules-*
           path: temp-modules
@@ -598,7 +531,7 @@ jobs:
           find temp-modules -name "*.ko" -exec cp {} package/wireguard/modules/ \;
           ls -la package/wireguard/modules/
       - name: Restore tools
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: tools
           path: package/wireguard/tools
@@ -614,7 +547,7 @@ jobs:
       - name: Package
         run: tar -C package -czf UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz ./
       - name: Store package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: release_unifios
           path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
@@ -628,9 +561,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v3
       - name: Create Release
         id: create_release
         uses: fossoreslp/release-artifacts@v1
