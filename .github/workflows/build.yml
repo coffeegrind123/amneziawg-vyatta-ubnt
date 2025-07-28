@@ -14,8 +14,6 @@ env:
   FIRMWARE_ER_v1: "v1.10.11"
   FIRMWARE_ER_v2: "v2.0.9"
   FIRMWARE_UGW: "4.4.50"
-  # Force Node.js 16 to avoid GLIBC compatibility issues with older containers
-  ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
 
 jobs:
   headers:
@@ -613,9 +611,8 @@ EOF
     timeout-minutes: 120
     env:
       BASE: udm-1.9.0-10
-      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4  # No container
       - name: Restore buildroot
         uses: actions/download-artifact@v4
         with:
@@ -728,10 +725,8 @@ EOF
     needs: [udm-build-tools, udm-build-modules]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    env:
-      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4  # No container
       - name: Prepare
         run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
       - name: Restore modules from all builds
@@ -803,15 +798,13 @@ EOF
   release:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
-    env:
-      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
     needs:
       - package
       - udm-package
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4  # No container
       - name: Create Release
         id: create_release
         uses: fossoreslp/release-artifacts@v1
