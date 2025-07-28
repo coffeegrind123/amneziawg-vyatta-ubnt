@@ -49,22 +49,49 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y build-essential patch curl wget xz-utils ca-certificates jq patch
-      - name: Build headers
+          apt-get install -y build-essential curl wget xz-utils ca-certificates jq patch
+      - name: Setup toolchain and build headers
         run: |
-          echo "=== Starting Build Headers ==="
-          echo "Current PATH: $PATH"
-          echo "Looking for cross-compiler: $CROSS"
-          which ${CROSS}gcc || echo "Cross-compiler not found in PATH"
+          echo "=== STARTING COMPLETE WORKFLOW ==="
+          echo "Device: ${{ matrix.device }}"
+          echo "Toolchain: ${{ matrix.toolchain }}"
+          echo "CROSS: $CROSS"
           
+          # First, install the toolchain
+          echo "=== INSTALLING TOOLCHAIN ==="
+          if [ "${{ matrix.toolchain }}" = "mips64-octeon-linux-" ]; then
+            apt-get install -y gcc-mips64-linux-gnuabi64 g++-mips64-linux-gnuabi64 binutils-mips64-linux-gnuabi64
+            mkdir -p /usr/local/bin
+            ln -sf /usr/bin/mips64-linux-gnuabi64-gcc /usr/local/bin/mips64-octeon-linux-gcc
+            ln -sf /usr/bin/mips64-linux-gnuabi64-g++ /usr/local/bin/mips64-octeon-linux-g++
+            ln -sf /usr/bin/mips64-linux-gnuabi64-ld /usr/local/bin/mips64-octeon-linux-ld
+            ln -sf /usr/bin/mips64-linux-gnuabi64-ar /usr/local/bin/mips64-octeon-linux-ar
+            ln -sf /usr/bin/mips64-linux-gnuabi64-strip /usr/local/bin/mips64-octeon-linux-strip
+            ln -sf /usr/bin/mips64-linux-gnuabi64-objcopy /usr/local/bin/mips64-octeon-linux-objcopy
+            ln -sf /usr/bin/mips64-linux-gnuabi64-objdump /usr/local/bin/mips64-octeon-linux-objdump
+            ln -sf /usr/bin/mips64-linux-gnuabi64-nm /usr/local/bin/mips64-octeon-linux-nm
+            ln -sf /usr/bin/mips64-linux-gnuabi64-ranlib /usr/local/bin/mips64-octeon-linux-ranlib
+            export PATH="/usr/local/bin:$PATH"
+            echo "Octeon toolchain installed and PATH updated"
+          elif [ "${{ matrix.toolchain }}" = "mipsel-linux-gnu-" ]; then
+            apt-get install -y gcc-mipsel-linux-gnu g++-mipsel-linux-gnu binutils-mipsel-linux-gnu
+            echo "MIPSEL toolchain installed"
+          fi
+          
+          # Verify toolchain works
+          echo "=== VERIFYING TOOLCHAIN ==="
+          echo "PATH: $PATH"
+          which ${CROSS}gcc
+          ${CROSS}gcc --version
+          
+          # Now do the build
+          echo "=== BUILDING HEADERS ==="
           mkdir /headers
           curl -o src.tar.bz2 $(jq -r '.["${{ matrix.device }}"]["${{ matrix.version }}"]' ci/ubnt-source.json)
           tar -xf src.tar.bz2 --wildcards 'source/kernel_*' --strip-components 1
           mv kernel_* kernel.tar.gz
           tar -xf kernel.tar.gz --strip-components 1
           if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
-          
-          echo "About to run: make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare"
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
           cp Module.symvers .config /headers
@@ -141,10 +168,41 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
+      - name: Install dependencies and setup toolchain
         run: |
           apt-get update
-          apt-get install -y build-essential
+          apt-get install -y build-essential patch
+          
+          # Install and setup cross-compilation toolchain  
+          echo "Setting up toolchain: ${{ matrix.toolchain }}"
+          
+          if [ "${{ matrix.toolchain }}" = "mips64-octeon-linux-" ]; then
+            apt-get install -y gcc-mips64-linux-gnuabi64 g++-mips64-linux-gnuabi64 binutils-mips64-linux-gnuabi64
+            mkdir -p /usr/local/bin
+            ln -sf /usr/bin/mips64-linux-gnuabi64-gcc /usr/local/bin/mips64-octeon-linux-gcc
+            ln -sf /usr/bin/mips64-linux-gnuabi64-g++ /usr/local/bin/mips64-octeon-linux-g++
+            ln -sf /usr/bin/mips64-linux-gnuabi64-ld /usr/local/bin/mips64-octeon-linux-ld
+            ln -sf /usr/bin/mips64-linux-gnuabi64-ar /usr/local/bin/mips64-octeon-linux-ar
+            ln -sf /usr/bin/mips64-linux-gnuabi64-strip /usr/local/bin/mips64-octeon-linux-strip
+            ln -sf /usr/bin/mips64-linux-gnuabi64-objcopy /usr/local/bin/mips64-octeon-linux-objcopy
+            ln -sf /usr/bin/mips64-linux-gnuabi64-objdump /usr/local/bin/mips64-octeon-linux-objdump
+            ln -sf /usr/bin/mips64-linux-gnuabi64-nm /usr/local/bin/mips64-octeon-linux-nm
+            ln -sf /usr/bin/mips64-linux-gnuabi64-ranlib /usr/local/bin/mips64-octeon-linux-ranlib
+            export PATH="/usr/local/bin:$PATH"
+          elif [ "${{ matrix.toolchain }}" = "mipsel-mtk-linux-" ]; then
+            apt-get install -y gcc-mipsel-linux-gnu g++-mipsel-linux-gnu binutils-mipsel-linux-gnu
+            mkdir -p /usr/local/bin
+            ln -sf /usr/bin/mipsel-linux-gnu-gcc /usr/local/bin/mipsel-mtk-linux-gcc
+            ln -sf /usr/bin/mipsel-linux-gnu-g++ /usr/local/bin/mipsel-mtk-linux-g++
+            ln -sf /usr/bin/mipsel-linux-gnu-ld /usr/local/bin/mipsel-mtk-linux-ld
+            ln -sf /usr/bin/mipsel-linux-gnu-ar /usr/local/bin/mipsel-mtk-linux-ar
+            ln -sf /usr/bin/mipsel-linux-gnu-strip /usr/local/bin/mipsel-mtk-linux-strip
+            ln -sf /usr/bin/mipsel-linux-gnu-objcopy /usr/local/bin/mipsel-mtk-linux-objcopy
+            ln -sf /usr/bin/mipsel-linux-gnu-objdump /usr/local/bin/mipsel-mtk-linux-objdump
+            ln -sf /usr/bin/mipsel-linux-gnu-nm /usr/local/bin/mipsel-mtk-linux-nm
+            ln -sf /usr/bin/mipsel-linux-gnu-ranlib /usr/local/bin/mipsel-mtk-linux-ranlib
+            export PATH="/usr/local/bin:$PATH"
+          fi
       - name: Restore module source
         uses: actions/download-artifact@v4
         with:
@@ -156,6 +214,7 @@ jobs:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
       - name: Build module
         run: |
+          export PATH="/usr/local/bin:$PATH"
           tar -xf headers.tar
           cd module/src
           make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module
@@ -334,10 +393,6 @@ jobs:
             cpio \
             curl \
             ca-certificates \
-            patch \
-            patch \
-            patch \
-            patch \
             patch
       - name: Download buildroot-2017.11.1
         run: |
@@ -493,7 +548,8 @@ EOF
             wget \
             cpio \
             curl \
-            ca-certificates
+            ca-certificates \
+            patch
       - name: Restore buildroot
         uses: actions/download-artifact@v4
         with:
@@ -692,7 +748,8 @@ EOF
             wget \
             cpio \
             curl \
-            ca-certificates
+            ca-certificates \
+            patch
       - name: Restore buildroot
         uses: actions/download-artifact@v4
         with:
