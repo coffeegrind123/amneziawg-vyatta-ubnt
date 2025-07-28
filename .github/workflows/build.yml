@@ -14,6 +14,8 @@ env:
   FIRMWARE_ER_v1: "v1.10.11"
   FIRMWARE_ER_v2: "v2.0.9"
   FIRMWARE_UGW: "4.4.50"
+  # Force Node.js 16 to avoid GLIBC compatibility issues with older containers
+  ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
 
 jobs:
   headers:
@@ -437,16 +439,6 @@ EOF
           cat unifios/bases/${{ matrix.base }}/versions.txt || echo "Versions file not found"
       - name: Configure buildroot
         run: |
-          # Verify base config exists
-          if [ ! -f "unifios/bases/${{ matrix.base }}/buildroot-config.txt" ]; then
-            echo "Error: buildroot-config.txt not found for ${{ matrix.base }}"
-            exit 1
-          fi
-          if [ ! -f "unifios/bases/${{ matrix.base }}/kernel-config" ]; then
-            echo "Error: kernel-config not found for ${{ matrix.base }}"
-            exit 1
-          fi
-          
           cd buildroot-2017.11.1
           
           # Ensure output directory structure exists
@@ -473,16 +465,12 @@ EOF
             echo "BR2_EXTERNAL_DEPS :=" >> output/.br-external.mk
           fi
           
-          # Copy configs after ensuring directory structure
-          cp ../unifios/bases/${{ matrix.base }}/buildroot-config.txt .config
-          cp ../unifios/bases/${{ matrix.base }}/kernel-config kernel-config
+          # Copy configs
+          cp ../unifios/bases/${{ env.BASE }}/buildroot-config.txt .config
+          cp ../unifios/bases/${{ env.BASE }}/kernel-config kernel-config
           
-          # Configure buildroot with existing config
+          # Configure buildroot
           make olddefconfig
-          
-          # Verify critical files exist after configuration
-          ls -la output/.br-external.mk || echo "Warning: .br-external.mk missing after configuration"
-          ls -la .config || echo "Warning: .config missing after configuration"
       - name: Verify buildroot setup
         run: |
           cd buildroot-2017.11.1
