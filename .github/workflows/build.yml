@@ -783,7 +783,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: buildroot-2017.11.1
-          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v2
+          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v3
           
       - name: Install system dependencies
         run: |
@@ -870,11 +870,11 @@ jobs:
         run: |
           cd buildroot-2017.11.1
           
-          # Create the patch file with proper EOF delimiter
-          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'M4_PATCH'
+          # Create the fixed patch file
+          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'EOF'
           --- a/lib/c-stack.c
           +++ b/lib/c-stack.c
-          @@ -50,11 +50,17 @@
+          @@ -50,11 +50,19 @@
            #if ! HAVE_STACK_OVERFLOW_HANDLING
            
            # include <sigsegv.h>
@@ -885,6 +885,9 @@ jobs:
            /* libsigsegv 2.6 through 2.8 have a bug where some architectures use
               more than the Linux default of an 8k alternate stack when deciding
               if a fault was caused by stack overflow.  */
+          -# define STACKSIZE 16384
+          -
+          -#else
           +
           +# ifdef SIGSTKSZ
           +#  if SIGSTKSZ < 16384
@@ -895,9 +898,6 @@ jobs:
           +# else
           +#  define STACKSIZE 16384
           +# endif
-          -# define STACKSIZE 16384
-          -
-          -#else
           +#else /* !HAVE_LIBSIGSEGV */
            
            # define STACKSIZE SIGSTKSZ
@@ -906,20 +906,21 @@ jobs:
           +#endif /* !HAVE_LIBSIGSEGV */
            
            #if HAVE_STACK_OVERFLOW_HANDLING
-          M4_PATCH
+          EOF
           
-          # Add the patch to the M4 package makefile
+          # Verify the patch is properly formatted
+          echo "Verifying M4 patch format..."
+          if head -10 package/m4/0002-fix-sigstksz-glibc-compatibility.patch | grep -q "^---\|^+++\|^@@"; then
+            echo "✓ M4 patch format is correct"
+          else
+            echo "❌ M4 patch format is incorrect"
+            exit 1
+          fi
+          
+          # Update M4 makefile to include the new patch
           if ! grep -q "0002-fix-sigstksz-glibc-compatibility.patch" package/m4/m4.mk; then
-            echo "Adding SIGSTKSZ compatibility patch to M4"
-            # Create backup
-            cp package/m4/m4.mk package/m4/m4.mk.bak
-            # Add patch to the makefile safely
-            awk '/M4_PATCH = / { 
-              print $0 " \\"
-              print "\tpackage/m4/0002-fix-sigstksz-glibc-compatibility.patch"
-              next 
-            } 
-            1' package/m4/m4.mk.bak > package/m4/m4.mk || echo "Could not modify m4.mk, continuing"
+            echo "Adding SIGSTKSZ compatibility patch to M4 makefile"
+            sed -i '/M4_PATCH =/s/$/ \\\n\tpackage\/m4\/0002-fix-sigstksz-glibc-compatibility.patch/' package/m4/m4.mk
           fi
           
       - name: Initialize buildroot
