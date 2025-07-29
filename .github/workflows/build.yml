@@ -908,18 +908,18 @@ jobs:
           # Try multiple build approaches
           BUILD_SUCCESS=0
           
-          # Method 1: Direct kernel build using proper source
+          # Method 1: Direct kernel build using headers directory (where config files are)
           echo "=== Attempting direct kernel build ==="
-          if make -C "$KERNEL_SRC" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+          if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
               EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules 2>&1; then
               echo "✓ Direct kernel build successful"
               BUILD_SUCCESS=1
           else
               echo "Direct kernel build failed, trying method 2..."
               
-              # Method 2: Module-specific Makefile
+              # Method 2: Module-specific Makefile using headers directory
               echo "=== Attempting module-specific build ==="
-              if make KERNELDIR="$KERNEL_SRC" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+              if make KERNELDIR="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
                   KERNELRELEASE="$KERNELRELEASE" V=1 -j$PARALLEL_JOBS module 2>&1; then
                   echo "✓ Module-specific build successful"
                   BUILD_SUCCESS=1
@@ -946,8 +946,8 @@ jobs:
                       echo "amneziawg-y += crypto/zinc/blake2s/blake2s.o" >> Kbuild.simple
                       echo "amneziawg-y += crypto/zinc/curve25519/curve25519.o" >> Kbuild.simple
                       
-                      # Try with simplified build
-                      if make -C "$KERNEL_SRC" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+                      # Try with simplified build using headers directory
+                      if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
                           KBUILD_EXTMOD="$(pwd)" EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS -f Kbuild.simple 2>&1; then
                           echo "✓ Forced compatibility build successful"
                           BUILD_SUCCESS=1
