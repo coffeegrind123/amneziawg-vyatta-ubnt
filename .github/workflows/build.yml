@@ -190,9 +190,100 @@ jobs:
           cp Module.symvers .config /headers
           make mrproper
           
-          # Build output headers
+          # Build output headers with proper kernel build system
           make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare modules_prepare scripts
-          rm -f /headers/source /headers/Make2>/dev/null || true
+          rm -f /headers/source /headers/build 2>/dev/null || true
+          
+          # Create kernel source directory and symlinks for module building
+          mkdir -p /headers/source
+          cp -r . /headers/source/ 2>/dev/null || true
+         
+          # Create essential symlinks 
+          cd /headers
+          ln -sf source build 2>/dev/null || true
+          
+          # Always create a proper kernel build Makefile for module compilation
+          echo "Creating kernel module build Makefile..."
+          # Get version info from source Makefile if available
+          if [ -f "source/Makefile" ]; then
+            VERSION=$(grep "^VERSION" source/Makefile 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "3")
+            PATCHLEVEL=$(grep "^PATCHLEVEL" source/Makefile 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "10")
+            SUBLEVEL=$(grep "^SUBLEVEL" source/Makefile 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "107")
+            EXTRAVERSION=$(grep "^EXTRAVERSION" source/Makefile 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "")
+            echo "Using version info from source Makefile: $VERSION.$PATCHLEVEL.$SUBLEVEL$EXTRAVERSION"
+          else
+            VERSION="3"
+            PATCHLEVEL="10" 
+            SUBLEVEL="107"
+            EXTRAVERSION=""
+            echo "Using default version info: $VERSION.$PATCHLEVEL.$SUBLEVEL"
+          fi
+          
+          cat > Makefile << EOF
+# Kernel module build Makefile for WireGuard
+VERSION = $VERSION
+PATCHLEVEL = $PATCHLEVEL
+SUBLEVEL = $SUBLEVEL
+EXTRAVERSION = $EXTRAVERSION
+
+KERNELRELEASE = \$(VERSION).\$(PATCHLEVEL).\$(SUBLEVEL)\$(EXTRAVERSION)
+
+# Default architecture and cross-compiler (can be overridden)
+ARCH ?= mips
+CROSS_COMPILE ?= 
+
+# Important build variables
+export ARCH CROSS_COMPILE
+export srctree := \$(CURDIR)
+export objtree := \$(CURDIR)
+export src := \$(srctree)
+export obj := \$(objtree)
+
+# Kernel configuration
+CONFIG_MODULES = y
+CONFIG_MODULE_UNLOAD = y
+export CONFIG_MODULES CONFIG_MODULE_UNLOAD
+
+# Default target
+.PHONY: all modules modules_prepare clean help
+all: modules
+
+# Main modules target - the one that was missing
+modules:
+	@echo "Building kernel modules..."
+	@echo "ARCH=\$(ARCH) CROSS_COMPILE=\$(CROSS_COMPILE)"
+	@echo "KERNELRELEASE=\$(KERNELRELEASE)"
+	@if [ -f scripts/Makefile.build ]; then \\
+		\$(MAKE) -f \$(srctree)/Makefile \$(if \$(M),M=\$(M),) modules; \\
+	else \\
+		echo "Using simplified module build..."; \\
+		if [ -n "\$(M)" ]; then \\
+			\$(MAKE) -C \$(M) -f \$(M)/Makefile KERNELDIR=\$(CURDIR) modules_build; \\
+		else \\
+			echo "No module directory specified (M= parameter required)"; \\
+			exit 1; \\
+		fi; \\
+	fi
+
+modules_prepare:
+	@echo "Module preparation completed"
+
+modules_install:
+	@echo "Module install not implemented"
+
+clean:
+	@find . -name "*.ko" -o -name "*.o" -o -name "*.mod.c" -o -name "*.mod.o" | xargs rm -f 2>/dev/null || true
+	@rm -f modules.order Module.symvers 2>/dev/null || true
+
+help:
+	@echo "Available targets:"
+	@echo "  all         - Build all modules (default)"
+	@echo "  modules     - Build kernel modules"
+	@echo "  clean       - Clean build artifacts"
+	@echo "  help        - Show this help"
+	@echo ""
+	@echo "Usage: make modules M=/path/to/module/source ARCH=mips CROSS_COMPILE=toolchain-prefix-"
+EOF
           
           # Copy necessary files for module compilation
           find . -path './include/*' -prune -o -path './scripts/*' -prune -o -type f \( -name 'Makefile*' -o -name 'Kconfig*' -o -name 'Kbuild*' -o -name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) -print | cpio -pdm "/headers"
@@ -338,6 +429,7 @@ jobs:
             ln -sf /usr/bin/mips64-linux-gnuabi64-nm /usr/local/bin/mips64-octeon-linux-nm
             ln -sf /usr/bin/mips64-linux-gnuabi64-ranlib /usr/local/bin/mips64-octeon-linux-ranlib
             export PATH="/usr/local/bin:$PATH"
+            echo "/usr/local/bin" >> $GITHUB_PATH
           elif [ "${{ matrix.toolchain }}" = "mipsel-mtk-linux-" ]; then
             apt-get install -y gcc-mipsel-linux-gnu g++-mipsel-linux-gnu binutils-mipsel-linux-gnu
             mkdir -p /usr/local/bin
@@ -351,7 +443,14 @@ jobs:
             ln -sf /usr/bin/mipsel-linux-gnu-nm /usr/local/bin/mipsel-mtk-linux-nm
             ln -sf /usr/bin/mipsel-linux-gnu-ranlib /usr/local/bin/mipsel-mtk-linux-ranlib
             export PATH="/usr/local/bin:$PATH"
+            echo "/usr/local/bin" >> $GITHUB_PATH
           fi
+          
+          # Verify toolchain installation
+          echo "=== Verifying toolchain installation ==="
+          which ${{ matrix.toolchain }}gcc || echo "Compiler not found in PATH"
+          ls -la /usr/local/bin/${{ matrix.toolchain }}* || echo "No toolchain files found"
+          ${{ matrix.toolchain }}gcc --version || echo "Compiler version check failed"
           
       - name: Restore module source
         uses: actions/download-artifact@v4
@@ -589,6 +688,12 @@ jobs:
       - name: Build module
         run: |
           export PATH="/usr/local/bin:$PATH"
+          
+          # Verify toolchain is available before building
+          echo "=== Verifying toolchain availability ==="
+          which ${{ matrix.toolchain }}gcc || echo "ERROR: Compiler not found in PATH"
+          ${{ matrix.toolchain }}gcc --version || echo "ERROR: Compiler version check failed"
+          
           cd module/src
           
           echo "=== Current module/src structure ==="
@@ -606,9 +711,31 @@ jobs:
           
           # Set build variables for compatibility
           export KERNELDIR="$GITHUB_WORKSPACE/headers"
+          export KERNEL_SRC="$GITHUB_WORKSPACE/headers/source"
           export KERNELRELEASE="$KERNEL_VERSION"
           export CROSS_COMPILE="${{ matrix.toolchain }}"
           export ARCH="mips"
+          
+          # Verify kernel source directory exists and is properly configured
+          if [ ! -d "$KERNEL_SRC" ]; then
+            echo "Warning: Kernel source not found at $KERNEL_SRC, using headers dir"
+            export KERNEL_SRC="$KERNELDIR"
+          fi
+          
+          echo "=== Kernel build environment verification ==="
+          echo "KERNELDIR: $KERNELDIR"
+          echo "KERNEL_SRC: $KERNEL_SRC"
+          echo "Checking headers directory:"
+          ls -la "$KERNELDIR" | head -10
+          echo "Checking if source Makefile exists:"
+          if [ -f "$KERNEL_SRC/Makefile" ]; then
+            echo "✓ Source Makefile found"
+            grep -E "^(VERSION|PATCHLEVEL|SUBLEVEL)" "$KERNEL_SRC/Makefile" | head -3 || echo "No version info in Makefile"
+          else
+            echo "⚠ Source Makefile not found at $KERNEL_SRC/Makefile"
+          fi
+          echo "Checking for scripts directory:"
+          ls -la "$KERNEL_SRC/scripts" | head -5 || echo "No scripts directory found"
           
           # Force disable WERROR and add compatibility flags
           export KCFLAGS="-Wno-error -Wno-address -Wno-array-bounds -Wno-missing-attributes -Wno-stringop-overread"
@@ -629,10 +756,10 @@ jobs:
           # Try multiple build approaches
           BUILD_SUCCESS=0
           
-          # Method 1: Direct kernel build
+          # Method 1: Direct kernel build using proper source
           echo "=== Attempting direct kernel build ==="
-          if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-              EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules; then
+          if make -C "$KERNEL_SRC" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+              EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules 2>&1; then
               echo "✓ Direct kernel build successful"
               BUILD_SUCCESS=1
           else
@@ -640,29 +767,39 @@ jobs:
               
               # Method 2: Module-specific Makefile
               echo "=== Attempting module-specific build ==="
-              if make KERNELDIR="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                  KERNELRELEASE="$KERNELRELEASE" V=1 -j$PARALLEL_JOBS module; then
+              if make KERNELDIR="$KERNEL_SRC" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+                  KERNELRELEASE="$KERNELRELEASE" V=1 -j$PARALLEL_JOBS module 2>&1; then
                   echo "✓ Module-specific build successful"
                   BUILD_SUCCESS=1
               else
                   echo "Module-specific build failed, trying method 3..."
                   
-                  # Method 3: Force older kernel compatibility
-                  echo "=== Attempting forced compatibility build ==="
-                  # Create a simplified Kbuild file
-                  echo "obj-m := amneziawg.o" > Kbuild.simple
-                  echo "amneziawg-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o" >> Kbuild.simple
-                  echo "amneziawg-y += crypto/zinc/chacha20/chacha20.o" >> Kbuild.simple
-                  echo "amneziawg-y += crypto/zinc/poly1305/poly1305.o" >> Kbuild.simple
-                  echo "amneziawg-y += crypto/zinc/chacha20poly1305/chacha20poly1305.o" >> Kbuild.simple
-                  echo "amneziawg-y += crypto/zinc/blake2s/blake2s.o" >> Kbuild.simple
-                  echo "amneziawg-y += crypto/zinc/curve25519/curve25519.o" >> Kbuild.simple
-                  
-                  # Try with simplified build
+                  # Method 3: Use headers directory if source fails
+                  echo "=== Attempting build with headers directory ==="
                   if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                      KBUILD_EXTMOD="$(pwd)" EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS -f Kbuild.simple; then
-                      echo "✓ Forced compatibility build successful"
+                      EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules 2>&1; then
+                      echo "✓ Headers directory build successful"
                       BUILD_SUCCESS=1
+                  else
+                      echo "Headers build failed, trying method 4..."
+                      
+                      # Method 4: Force compatibility with custom build
+                      echo "=== Attempting forced compatibility build ==="
+                      # Create a simplified Kbuild file
+                      echo "obj-m := amneziawg.o" > Kbuild.simple
+                      echo "amneziawg-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o" >> Kbuild.simple
+                      echo "amneziawg-y += crypto/zinc/chacha20/chacha20.o" >> Kbuild.simple
+                      echo "amneziawg-y += crypto/zinc/poly1305/poly1305.o" >> Kbuild.simple
+                      echo "amneziawg-y += crypto/zinc/chacha20poly1305/chacha20poly1305.o" >> Kbuild.simple
+                      echo "amneziawg-y += crypto/zinc/blake2s/blake2s.o" >> Kbuild.simple
+                      echo "amneziawg-y += crypto/zinc/curve25519/curve25519.o" >> Kbuild.simple
+                      
+                      # Try with simplified build
+                      if make -C "$KERNEL_SRC" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+                          KBUILD_EXTMOD="$(pwd)" EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS -f Kbuild.simple 2>&1; then
+                          echo "✓ Forced compatibility build successful"
+                          BUILD_SUCCESS=1
+                      fi
                   fi
               fi
           fi
