@@ -219,7 +219,8 @@ jobs:
             echo "Using default version info: $VERSION.$PATCHLEVEL.$SUBLEVEL"
           fi
           
-          cat > Makefile << EOF
+          # Create Makefile with proper kernel module build support
+          cat > Makefile << MAKEFILE_END
 # Kernel module build Makefile for WireGuard
 VERSION = $VERSION
 PATCHLEVEL = $PATCHLEVEL
@@ -283,7 +284,7 @@ help:
 	@echo "  help        - Show this help"
 	@echo ""
 	@echo "Usage: make modules M=/path/to/module/source ARCH=mips CROSS_COMPILE=toolchain-prefix-"
-EOF
+MAKEFILE_END
           
           # Copy necessary files for module compilation
           find . -path './include/*' -prune -o -path './scripts/*' -prune -o -type f \( -name 'Makefile*' -o -name 'Kconfig*' -o -name 'Kbuild*' -o -name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) -print | cpio -pdm "/headers"
