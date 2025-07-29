@@ -908,13 +908,16 @@ jobs:
           echo "  KERNELRELEASE: $KERNELRELEASE"
           echo "  EXTRA_CFLAGS: $KCFLAGS"
           
-          # Use the official AmnesiaWG 'all' target (NOT 'module' which causes recursion)
-          if make all KERNELDIR="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-              KERNELRELEASE="$KERNELRELEASE" EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS; then
-              echo "✓ Module built successfully using official 'all' target"
+          # Bypass the AmnesiaWG Makefile wrapper and use kernel build system directly
+          # The AmnesiaWG Makefile is causing circular dependencies with the headers Makefile
+          echo "Using direct kernel build system to avoid circular dependencies"
+          
+          if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+              EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules; then
+              echo "✓ Module built successfully using direct kernel build"
               BUILD_SUCCESS=1
           else
-              echo "✗ Official build failed"
+              echo "✗ Direct kernel build failed"
               BUILD_SUCCESS=0
           fi
           
