@@ -41,8 +41,8 @@ jobs:
         include:
           - device: e50
             version: 1
-            toolchain: mipsel-linux-gnu-
-            image: mipsel-kernel
+            toolchain: mipsel-mtk-linux-
+            image: mtk-kernel
           - device: e50
             version: 2
             toolchain: mipsel-linux-gnu-
@@ -112,6 +112,20 @@ jobs:
           elif [ "${{ matrix.toolchain }}" = "mipsel-linux-gnu-" ]; then
             apt-get install -y gcc-mipsel-linux-gnu g++-mipsel-linux-gnu binutils-mipsel-linux-gnu || sleep 5
             echo "MIPSEL toolchain installed"
+          elif [ "${{ matrix.toolchain }}" = "mipsel-mtk-linux-" ]; then
+            apt-get install -y gcc-mipsel-linux-gnu g++-mipsel-linux-gnu binutils-mipsel-linux-gnu || sleep 5
+            mkdir -p /usr/local/bin
+            ln -sf /usr/bin/mipsel-linux-gnu-gcc /usr/local/bin/mipsel-mtk-linux-gcc
+            ln -sf /usr/bin/mipsel-linux-gnu-g++ /usr/local/bin/mipsel-mtk-linux-g++
+            ln -sf /usr/bin/mipsel-linux-gnu-ld /usr/local/bin/mipsel-mtk-linux-ld
+            ln -sf /usr/bin/mipsel-linux-gnu-ar /usr/local/bin/mipsel-mtk-linux-ar
+            ln -sf /usr/bin/mipsel-linux-gnu-strip /usr/local/bin/mipsel-mtk-linux-strip
+            ln -sf /usr/bin/mipsel-linux-gnu-objcopy /usr/local/bin/mipsel-mtk-linux-objcopy
+            ln -sf /usr/bin/mipsel-linux-gnu-objdump /usr/local/bin/mipsel-mtk-linux-objdump
+            ln -sf /usr/bin/mipsel-linux-gnu-nm /usr/local/bin/mipsel-mtk-linux-nm
+            ln -sf /usr/bin/mipsel-linux-gnu-ranlib /usr/local/bin/mipsel-mtk-linux-ranlib
+            export PATH="/usr/local/bin:$PATH"
+            echo "MediaTek MIPSEL toolchain installed"
           fi
           
           # Verify toolchain works
@@ -570,8 +584,8 @@ jobs:
             image: mtk-kernel
           - device: e50
             version: 2
-            toolchain: mipsel-mtk-linux-
-            image: mtk-kernel
+            toolchain: mipsel-linux-gnu-
+            image: mipsel-kernel
 
     steps:
       - uses: actions/checkout@v4
@@ -1212,7 +1226,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y kmod file
+          apt-get install -y kmod dpkg-deb file
           
       - name: Download module
         uses: actions/download-artifact@v4
