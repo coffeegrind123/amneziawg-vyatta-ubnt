@@ -367,12 +367,15 @@ jobs:
           echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
           echo "Detected kernel version: $KERNEL_VERSION"
           
-      - name: Apply AmneziawG compatibility fixes
+      - name: Apply AmnesiaWG compatibility fixes
         run: |
           export PATH="/usr/local/bin:$PATH"
           cd module/src
           
           echo "=== APPLYING AMNEZIAWG COMPATIBILITY FIXES FOR KERNEL $KERNEL_VERSION ==="
+          
+          # Create a backup of netlink.c before modifications
+          cp netlink.c netlink.c.backup
           
           # 1. Fix get_random_u8() compatibility in netlink.c
           echo "Fixing get_random_u8() usage..."
@@ -395,57 +398,173 @@ jobs:
               echo "✓ Added get_random_u8 compatibility wrapper"
           fi
           
-          # 3. Enhanced netlink compatibility fixes
-          echo "Applying enhanced netlink compatibility fixes..."
+          # 3. COMPREHENSIVE NETLINK COMPATIBILITY FIXES
+          echo "=== Applying comprehensive netlink.c fixes ==="
           
-          # Fix genl_family structure for older kernels
-          if grep -q "\.mcgrps = wg_genl_mcgrps," netlink.c; then
-              sed -i '/\.mcgrps = wg_genl_mcgrps,/i#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)' netlink.c
-              sed -i '/\.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)/a#else' netlink.c
-              sed -i '/\.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)/a/* mcgrps and n_mcgrps not available in older kernels */' netlink.c  
-              sed -i '/\.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)/a#endif' netlink.c
-              echo "✓ Fixed genl_family structure"
-          fi
+          # Create a Python script to safely fix the netlink.c preprocessor issues
+          cat > fix_netlink.py << 'PYTHON_SCRIPT_END'
+          #!/usr/bin/env python3
+          import re
+          import sys
           
-          # Fix registration function - use simpler approach
+          def fix_netlink_file(filename):
+              """Fix preprocessor issues in netlink.c"""
+              print(f"Processing {filename}...")
+              
+              with open(filename, 'r') as f:
+                  content = f.read()
+              
+              lines = content.splitlines()
+              fixed_lines = []
+              
+              # Track conditional compilation state
+              if_stack = []
+              in_genl_family = False
+              
+              i = 0
+              while i < len(lines):
+                  line = lines[i].rstrip()
+                  
+                  # Check for orphaned #else directives
+                  if line.strip() == '#else':
+                      # Look for context to determine if this #else is orphaned
+                      if not if_stack:
+                          print(f"Found orphaned #else at line {i+1}, commenting it out")
+                          fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
+                          i += 1
+                          continue
+                  
+                  # Track #if/#endif pairs
+                  if line.strip().startswith('#if'):
+                      if_stack.append(i)
+                  elif line.strip().startswith('#endif'):
+                      if if_stack:
+                          if_stack.pop()
+                  elif line.strip().startswith('#else'):
+                      if not if_stack:
+                          # This is an orphaned #else
+                          print(f"Orphaned #else found at line {i+1}")
+                          fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
+                          i += 1
+                          continue
+                  
+                  # Handle genl_family structure modifications more carefully
+                  if '.mcgrps = wg_genl_mcgrps,' in line:
+                      in_genl_family = True
+                      # Add proper conditional compilation
+                      fixed_lines.append('#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)')
+                      fixed_lines.append(line)
+                  elif in_genl_family and '.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)' in line:
+                      fixed_lines.append(line)
+                      fixed_lines.append('#else')
+                      fixed_lines.append('\t/* .mcgrps and .n_mcgrps not available in older kernels */')
+                      fixed_lines.append('#endif')
+                      in_genl_family = False
+                  else:
+                      fixed_lines.append(line)
+                  
+                  i += 1
+              
+              # Write the fixed content
+              with open(filename, 'w') as f:
+                  f.write('\n'.join(fixed_lines) + '\n')
+              
+              print(f"✓ Fixed {filename}")
+              return True
+          
+          if __name__ == "__main__":
+              fix_netlink_file("netlink.c")
+          PYTHON_SCRIPT_END
+          
+          # Run the Python fix script
+          python3 fix_netlink.py
+          
+          # 4. Apply additional fixes for multicast registration
+          echo "Fixing multicast registration..."
+          
+          # Fix registration function with proper conditional compilation
           if grep -q "ret = genl_register_family(&genl_family);" netlink.c; then
-              # Create a patch file for the registration fix
-              cat > netlink_register.patch << 'PATCH_END'
+              # Create a proper patch for registration
+              cat > registration_fix.patch << 'PATCH_END'
+          	ret = genl_register_family(&genl_family);
           #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
           	if (ret < 0)
           		return ret;
           	/* Register multicast groups separately for older kernels */
           	ret = genl_register_mc_group(&genl_family, &wg_genl_mcgrps[0]);
-          	if (ret < 0)
+          	if (ret < 0) {
           		genl_unregister_family(&genl_family);
+          		return ret;
+          	}
           #endif
           PATCH_END
               
-              # Apply the patch
-              sed -i '/ret = genl_register_family(&genl_family);/r netlink_register.patch' netlink.c
-              rm netlink_register.patch
+              # Apply the patch after the registration line
+              sed -i '/ret = genl_register_family(&genl_family);/r registration_fix.patch' netlink.c
+              rm registration_fix.patch
               echo "✓ Fixed registration function"
           fi
           
-          # Fix multicast function call
+          # Fix multicast function call with proper conditional compilation
           if grep -q "genlmsg_multicast_netns(&genl_family" netlink.c; then
-              # Create patch for multicast fix
-              cat > multicast.patch << 'PATCH_END'
-          #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
-          	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);
-          #else
-          	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);
-          #endif
-          PATCH_END
-              
-              # Remove the original line and add the conditional version
-              sed -i '/ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);/d' netlink.c
-              sed -i '/genlmsg_multicast_netns(&genl_family/r multicast.patch' netlink.c
-              rm multicast.patch
+              # Replace the multicast call with conditional version
+              sed -i '/ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);/c\
+          #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)\
+          	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);\
+          #else\
+          	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);\
+          #endif' netlink.c
               echo "✓ Fixed multicast function"
           fi
           
-          # 4. Fix compiler warnings by adjusting flags
+          # 5. Final validation - check for preprocessor syntax errors
+          echo "=== Validating preprocessor syntax ==="
+          
+          # Count #if, #else, #endif to ensure they're balanced
+          python3 << 'VALIDATION_SCRIPT'
+          with open('netlink.c', 'r') as f:
+              content = f.read()
+          
+          lines = content.splitlines()
+          if_count = 0
+          else_count = 0
+          endif_count = 0
+          orphaned_else = []
+          
+          stack = []
+          for i, line in enumerate(lines):
+              stripped = line.strip()
+              if stripped.startswith('#if'):
+                  if_count += 1
+                  stack.append(('if', i+1))
+              elif stripped == '#else':
+                  else_count += 1
+                  if not stack or stack[-1][0] != 'if':
+                      orphaned_else.append(i+1)
+                  else:
+                      stack[-1] = ('else', i+1)
+              elif stripped.startswith('#endif'):
+                  endif_count += 1
+                  if stack:
+                      stack.pop()
+          
+          print(f"Preprocessor directive counts:")
+          print(f"  #if variants: {if_count}")
+          print(f"  #else: {else_count}")
+          print(f"  #endif: {endif_count}")
+          
+          if orphaned_else:
+              print(f"⚠ Found orphaned #else directives at lines: {orphaned_else}")
+              sys.exit(1)
+          
+          if stack:
+              print(f"⚠ Unmatched directives: {stack}")
+              sys.exit(1)
+          
+          print("✓ Preprocessor directives are properly balanced")
+          VALIDATION_SCRIPT
+          
+          # 6. Adjust compiler flags to suppress warnings that become errors
           echo "Adjusting compiler flags..."
           if [ -f "Makefile" ]; then
               # Add flags to suppress specific warnings that become errors
@@ -455,17 +574,61 @@ jobs:
               fi
           fi
           
-          echo "=== COMPATIBILITY FIXES COMPLETED ==="
+          echo "=== COMPATIBILITY FIXES COMPLETED SUCCESSFULLY ==="
           
       - name: Build module
         run: |
           export PATH="/usr/local/bin:$PATH"
           cd module/src
           
+          echo "Run export PATH=\"/usr/local/bin:\$PATH\""
           echo "=== Current module/src structure ==="
-          ls -la
+          total 300
+          drwxr-xr-x  9 root root  4096 Jul 29 08:29 .
+          drwxr-xr-x  5 root root  4096 Jul 29 08:29 ..
+          -rw-r--r--  1 root root   870 Jul 29 08:29 Kbuild
+          -rw-r--r--  1 root root  1151 Jul 29 08:29 Kconfig
+          -rw-r--r--  1 root root  5009 Jul 29 08:29 Makefile
+          -rw-r--r--  1 root root 11047 Jul 29 08:29 allowedips.c
+          -rw-r--r--  1 root root  1874 Jul 29 08:29 allowedips.h
+          drwxr-xr-x 16 root root  4096 Jul 29 08:29 compat
+          -rw-r--r--  1 root root  7189 Jul 29 08:29 cookie.c
+          -rw-r--r--  1 root root  1671 Jul 29 08:29 cookie.h
+          drwxr-xr-x  4 root root  4096 Jul 29 08:29 crypto
+          -rw-r--r--  1 root root 18363 Jul 29 08:29 device.c
+          -rw-r--r--  1 root root  2010 Jul 29 08:29 device.h
+          -rw-r--r--  1 root root   292 Jul 29 08:29 dkms.conf
+          drwxr-xr-x  2 root root  4096 Jul 29 08:29 generated
+          -rw-r--r--  1 root root  2230 Jul 29 08:29 main.c
+          -rw-r--r--  1 root root  3779 Jul 29 08:29 messages.h
+          -rw-r--r--  1 root root 27028 Jul 29 08:29 netlink.c
+          -rw-r--r--  1 root root   581 Jul 29 08:29 netlink.h
+          -rw-r--r--  1 root root 27477 Jul 29 08:29 noise.c
+          -rw-r--r--  1 root root  4069 Jul 29 08:29 noise.h
+          drwxr-xr-x  2 root root  4096 Jul 29 08:29 patches
+          -rw-r--r--  1 root root  7788 Jul 29 08:29 peer.c
+          -rw-r--r--  1 root root  2274 Jul 29 08:29 peer.h
+          -rw-r--r--  1 root root  6437 Jul 29 08:29 peerlookup.c
+          -rw-r--r--  1 root root  1794 Jul 29 08:29 peerlookup.h
+          -rw-r--r--  1 root root  2715 Jul 29 08:29 queueing.c
+          -rw-r--r--  1 root root  6547 Jul 29 08:29 queueing.h
+          -rw-r--r--  1 root root  6366 Jul 29 08:29 ratelimiter.c
+          -rw-r--r--  1 root root   432 Jul 29 08:29 ratelimiter.h
+          -rw-r--r--  1 root root 20709 Jul 29 08:29 receive.c
+          drwxr-xr-x  2 root root  4096 Jul 29 08:29 selftest
+          -rw-r--r--  1 root root 15969 Jul 29 08:29 send.c
+          -rw-r--r--  1 root root 11746 Jul 29 08:29 socket.c
+          -rw-r--r--  1 root root  1725 Jul 29 08:29 socket.h
+          drwxr-xr-x  3 root root  4096 Jul 29 08:29 tests
+          -rw-r--r--  1 root root  8149 Jul 29 08:29 timers.c
+          -rw-r--r--  1 root root  1036 Jul 29 08:29 timers.h
+          drwxr-xr-x  2 root root  4096 Jul 29 08:29 uapi
+          -rw-r--r--  1 root root    74 Jul 29 08:29 version.h
           echo "=== Looking for Makefiles ==="
-          find . -name "Makefile*" -o -name "*.mk"
+          ./Makefile
+          ./generated/Makefile
+          ./tests/qemu/Makefile
+          ./tests/debug.mk
           
           if [ -f "Makefile" ]; then
             echo "=== Main Makefile content (first 20 lines) ==="
@@ -603,6 +766,11 @@ jobs:
           find module/src -name "*.ko" -o -name "*.o" | head -20
           echo "Kernel headers check:"
           ls -la headers/ | head -10
+          echo "Netlink.c backup comparison:"
+          if [ -f "module/src/netlink.c.backup" ]; then
+            echo "=== Showing netlink.c changes ==="
+            diff -u module/src/netlink.c.backup module/src/netlink.c | head -50 || echo "Files are identical or diff failed"
+          fi
           
       - name: Upload built module
         uses: actions/upload-artifact@v4
