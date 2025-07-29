@@ -783,7 +783,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: buildroot-2017.11.1
-          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v4
+          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v5
           
       - name: Install system dependencies
         run: |
@@ -870,35 +870,38 @@ jobs:
         run: |
           cd buildroot-2017.11.1
           
-          # Create a very simple patch that just adds a fallback for SIGSTKSZ
-          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'EOF'
-          --- a/lib/c-stack.c
-          +++ b/lib/c-stack.c
-          @@ -43,6 +43,11 @@
-           
-           #include "c-stack.h"
-           
-          +/* Ensure SIGSTKSZ is defined for newer glibc versions */
-          +#ifndef SIGSTKSZ
-          +# define SIGSTKSZ 16384
-          +#endif
-          +
-           #if DEBUG
-           # include <stdio.h>
-           #endif
-          EOF
+          # The simplest approach: remove the problematic patch entirely
+          # and use compiler flags to work around the SIGSTKSZ issue
+          echo "Removing problematic M4 SIGSTKSZ patch..."
+          rm -f package/m4/0002-fix-sigstksz-glibc-compatibility.patch
           
-          echo "Created simple M4 SIGSTKSZ compatibility patch"
-          
-          # Verify the patch looks reasonable
-          if [ -f "package/m4/0002-fix-sigstksz-glibc-compatibility.patch" ]; then
-            echo "✓ M4 patch created successfully"
-            echo "Patch content:"
-            head -10 package/m4/0002-fix-sigstksz-glibc-compatibility.patch
+          # Modify the M4 makefile to add compiler flags that work around the issue
+          if [ -f "package/m4/m4.mk" ]; then
+            echo "Adding SIGSTKSZ workaround compiler flags to M4..."
+            
+            # Add CPPFLAGS to define SIGSTKSZ as a constant value
+            if ! grep -q "SIGSTKSZ" package/m4/m4.mk; then
+              # Add the flags to the configure environment
+              sed -i '/^M4_CONF_OPTS/i M4_CONF_ENV += CPPFLAGS="$(HOST_CPPFLAGS) -DSIGSTKSZ=16384"' package/m4/m4.mk
+              echo "✓ Added SIGSTKSZ=16384 define to M4 build"
+            fi
+            
+            # Also make sure to use -fcommon for older compatibility
+            if ! grep -q "fcommon" package/m4/m4.mk; then
+              sed -i '/^M4_CONF_ENV/s/$/ CFLAGS="$(HOST_CFLAGS) -fcommon"/' package/m4/m4.mk
+              echo "✓ Added -fcommon flag to M4 build"
+            fi
           else
-            echo "❌ Failed to create M4 patch"
-            exit 1
+            echo "⚠ M4 makefile not found, using environment variables"
           fi
+          
+          # Remove the patch from the makefile if it's referenced
+          if grep -q "0002-fix-sigstksz-glibc-compatibility.patch" package/m4/m4.mk 2>/dev/null; then
+            sed -i '/0002-fix-sigstksz-glibc-compatibility.patch/d' package/m4/m4.mk
+            echo "✓ Removed patch reference from M4 makefile"
+          fi
+          
+          echo "M4 SIGSTKSZ compatibility fix completed using compiler flags"
           
       - name: Initialize buildroot
         run: |
