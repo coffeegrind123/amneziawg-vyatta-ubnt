@@ -273,12 +273,31 @@ jobs:
             make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules
           }
           
-          # Copy build artifacts
+          # Copy build artifacts and prepare for output build
           cp Module.symvers .config /headers
           make mrproper
           
           # Build output headers with proper kernel build system
-          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare modules_prepare scripts
+          echo "=== BUILDING OUTPUT HEADERS ==="
+          
+          # Run the configuration and preparation steps in the output directory
+          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" oldconfig
+          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare
+          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules_prepare  
+          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" scripts
+          
+          echo "=== VERIFYING GENERATED CONFIG FILES ==="
+          if [ -f "/headers/include/generated/autoconf.h" ]; then
+            echo "✓ autoconf.h generated successfully"
+          else
+            echo "✗ autoconf.h missing"
+          fi
+          
+          if [ -f "/headers/include/config/auto.conf" ]; then
+            echo "✓ auto.conf generated successfully"  
+          else
+            echo "✗ auto.conf missing"
+          fi
           rm -f /headers/source /headers/build 2>/dev/null || true
           
           # Create kernel source directory and symlinks for module building
@@ -442,6 +461,17 @@ jobs:
             echo "✗ headers.tar NOT found in $(pwd)"
             echo "Files in current directory:"
             ls -la
+          fi
+          echo "=== KERNEL CONFIG FILES VERIFICATION ==="
+          if [ -f "/headers/include/generated/autoconf.h" ]; then
+            echo "✓ autoconf.h present in headers"
+          else
+            echo "✗ autoconf.h missing from headers"
+          fi
+          if [ -f "/headers/include/config/auto.conf" ]; then
+            echo "✓ auto.conf present in headers"
+          else
+            echo "✗ auto.conf missing from headers"
           fi
 
   module-prepare:
