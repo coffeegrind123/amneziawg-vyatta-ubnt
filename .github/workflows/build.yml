@@ -221,6 +221,16 @@ jobs:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
           path: headers.tar
 
+      - name: Debug headers output
+        run: |
+          echo "=== HEADERS DEBUG ==="
+          ls -la /headers/
+          find /headers -name "Makefile*" -o -name "*.symvers" -o -name ".config" | head -10
+          if [ -f "/headers/Makefile" ]; then
+            echo "Makefile found, checking version info:"
+            grep -E "^(VERSION|PATCHLEVEL|SUBLEVEL)" /headers/Makefile || echo "No version info"
+          fi
+
   module-prepare:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
