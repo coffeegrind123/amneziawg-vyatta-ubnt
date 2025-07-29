@@ -373,7 +373,7 @@ jobs:
           printf '\telse \\\n' >> Makefile
           printf '\t\techo "Using simplified module build..."; \\\n' >> Makefile
           printf '\t\tif [ -n "$(M)" ]; then \\\n' >> Makefile
-          printf '\t\t\t$(MAKE) -C $(M) -f $(M)/Makefile KERNELDIR=$(CURDIR) modules_build; \\\n' >> Makefile
+          printf '\t\t\t$(MAKE) -C $(M) KERNELDIR=$(CURDIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) module; \\\n' >> Makefile
           printf '\t\telse \\\n' >> Makefile
           printf '\t\t\techo "No module directory specified (M= parameter required)"; \\\n' >> Makefile
           printf '\t\t\texit 1; \\\n' >> Makefile
