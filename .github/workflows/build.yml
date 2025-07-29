@@ -583,52 +583,7 @@ jobs:
           
           echo "Run export PATH=\"/usr/local/bin:\$PATH\""
           echo "=== Current module/src structure ==="
-          total 300
-          drwxr-xr-x  9 root root  4096 Jul 29 08:29 .
-          drwxr-xr-x  5 root root  4096 Jul 29 08:29 ..
-          -rw-r--r--  1 root root   870 Jul 29 08:29 Kbuild
-          -rw-r--r--  1 root root  1151 Jul 29 08:29 Kconfig
-          -rw-r--r--  1 root root  5009 Jul 29 08:29 Makefile
-          -rw-r--r--  1 root root 11047 Jul 29 08:29 allowedips.c
-          -rw-r--r--  1 root root  1874 Jul 29 08:29 allowedips.h
-          drwxr-xr-x 16 root root  4096 Jul 29 08:29 compat
-          -rw-r--r--  1 root root  7189 Jul 29 08:29 cookie.c
-          -rw-r--r--  1 root root  1671 Jul 29 08:29 cookie.h
-          drwxr-xr-x  4 root root  4096 Jul 29 08:29 crypto
-          -rw-r--r--  1 root root 18363 Jul 29 08:29 device.c
-          -rw-r--r--  1 root root  2010 Jul 29 08:29 device.h
-          -rw-r--r--  1 root root   292 Jul 29 08:29 dkms.conf
-          drwxr-xr-x  2 root root  4096 Jul 29 08:29 generated
-          -rw-r--r--  1 root root  2230 Jul 29 08:29 main.c
-          -rw-r--r--  1 root root  3779 Jul 29 08:29 messages.h
-          -rw-r--r--  1 root root 27028 Jul 29 08:29 netlink.c
-          -rw-r--r--  1 root root   581 Jul 29 08:29 netlink.h
-          -rw-r--r--  1 root root 27477 Jul 29 08:29 noise.c
-          -rw-r--r--  1 root root  4069 Jul 29 08:29 noise.h
-          drwxr-xr-x  2 root root  4096 Jul 29 08:29 patches
-          -rw-r--r--  1 root root  7788 Jul 29 08:29 peer.c
-          -rw-r--r--  1 root root  2274 Jul 29 08:29 peer.h
-          -rw-r--r--  1 root root  6437 Jul 29 08:29 peerlookup.c
-          -rw-r--r--  1 root root  1794 Jul 29 08:29 peerlookup.h
-          -rw-r--r--  1 root root  2715 Jul 29 08:29 queueing.c
-          -rw-r--r--  1 root root  6547 Jul 29 08:29 queueing.h
-          -rw-r--r--  1 root root  6366 Jul 29 08:29 ratelimiter.c
-          -rw-r--r--  1 root root   432 Jul 29 08:29 ratelimiter.h
-          -rw-r--r--  1 root root 20709 Jul 29 08:29 receive.c
-          drwxr-xr-x  2 root root  4096 Jul 29 08:29 selftest
-          -rw-r--r--  1 root root 15969 Jul 29 08:29 send.c
-          -rw-r--r--  1 root root 11746 Jul 29 08:29 socket.c
-          -rw-r--r--  1 root root  1725 Jul 29 08:29 socket.h
-          drwxr-xr-x  3 root root  4096 Jul 29 08:29 tests
-          -rw-r--r--  1 root root  8149 Jul 29 08:29 timers.c
-          -rw-r--r--  1 root root  1036 Jul 29 08:29 timers.h
-          drwxr-xr-x  2 root root  4096 Jul 29 08:29 uapi
-          -rw-r--r--  1 root root    74 Jul 29 08:29 version.h
-          echo "=== Looking for Makefiles ==="
-          ./Makefile
-          ./generated/Makefile
-          ./tests/qemu/Makefile
-          ./tests/debug.mk
+          ls -la
           
           if [ -f "Makefile" ]; then
             echo "=== Main Makefile content (first 20 lines) ==="
