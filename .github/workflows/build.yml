@@ -1212,7 +1212,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y kmod dpkg-deb file
+          apt-get install -y kmod file
           
       - name: Download module
         uses: actions/download-artifact@v4
