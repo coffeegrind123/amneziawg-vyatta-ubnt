@@ -180,15 +180,15 @@ jobs:
           echo "Cleaning pre-generated DTC files..."
           rm -f scripts/dtc/dtc-lexer.lex.c scripts/dtc/dtc-parser.tab.c scripts/dtc/dtc-parser.tab.h 2>/dev/null || true
           
-          # Patch DTC Maketo add -fcommon flag
-          if [ -f scripts/dtc/Make]; then
-            echo "Patching DTC Makefor yylloc fix..."
+          # Patch DTC Makefile to add -fcommon flag
+          if [ -f scripts/dtc/Makefile ]; then
+            echo "Patching DTC Makefile for yylloc fix..."
             if ! grep -q "fcommon" scripts/dtc/Makefile; then
               # Add -fcommon flags for DTC compilation
               sed -i '/HOSTCFLAGS_DTC.*:=/a # Fix yylloc multiple definition issue\nHOSTCFLAGS_dtc-lexer.lex.o := $(HOSTCFLAGS_DTC) -fcommon -Wno-error\nHOSTCFLAGS_dtc-parser.tab.o := $(HOSTCFLAGS_DTC) -fcommon -Wno-error' scripts/dtc/Makefile
-              echo "DTC Makepatched successfully"
+              echo "DTC Makefile patched successfully"
             else
-              echo "DTC Makealready contains fcommon flags"
+              echo "DTC Makefile already contains fcommon flags"
             fi
           fi
           
@@ -512,7 +512,7 @@ jobs:
           mkdir -p generated
           
           if [ ! -f "generated/Makefile" ]; then
-            echo "# Generated Makefor WireGuard module" > generated/Makefile
+            echo "# Generated Makefile for WireGuard module" > generated/Makefile
             echo "obj-m += wireguard.o" >> generated/Makefile
           fi
           
@@ -620,7 +620,7 @@ jobs:
           tar -xf headers.tar
           # Enhanced kernel version detection
           KERNEL_VERSION=$(
-            grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Make| 
+            grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Makefile | 
             head -3 | cut -d'=' -f2 | tr -d ' ' | paste -sd '.' ||
             grep "LINUX_VERSION_CODE" $GITHUB_WORKSPACE/headers/include/generated/uapi/linux/version.h 2>/dev/null |
             awk '{print $3}' | python3 -c 'import sys; code=int(sys.stdin.read().strip()); print(f"{(code>>16)&0xFF}.{(code>>8)&0xFF}.{code&0xFF}")' || echo "3.10.107"
@@ -855,7 +855,7 @@ jobs:
           find . -name "Makefile*" -o -name "*.mk" | head -10
           
           if [ -f "Makefile" ]; then
-            echo "=== Main Makecontent (first 20 lines) ==="
+            echo "=== Main Makefile content (first 20 lines) ==="
             head -20 Makefile
           fi
           
@@ -976,7 +976,7 @@ jobs:
                   ls -la wireguard.ko
                   
                   # Verify the module
-                  wireguard.ko
+                  file wireguard.ko
                   echo "Module info:"
                   ${{ matrix.toolchain }}objdump -h wireguard.ko | head -10 || echo "Could not analyze module"
               else
@@ -995,7 +995,7 @@ jobs:
           if [ -f "wireguard.ko" ]; then
             # Basic checks
             echo "Module size: $(stat -c%s wireguard.ko) bytes"
-            echo "Module type: $(wireguard.ko)"
+            echo "Module type: $(file wireguard.ko)"
             
             # Check for required symbols
             if ${{ matrix.toolchain }}nm wireguard.ko | grep -q "init_module\|cleanup_module"; then
