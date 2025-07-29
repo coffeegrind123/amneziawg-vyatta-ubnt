@@ -583,7 +583,52 @@ jobs:
           
           echo "Run export PATH=\"/usr/local/bin:\$PATH\""
           echo "=== Current module/src structure ==="
-          ls -la
+          total 300
+          drwxr-xr-x  9 root root  4096 Jul 29 08:29 .
+          drwxr-xr-x  5 root root  4096 Jul 29 08:29 ..
+          -rw-r--r--  1 root root   870 Jul 29 08:29 Kbuild
+          -rw-r--r--  1 root root  1151 Jul 29 08:29 Kconfig
+          -rw-r--r--  1 root root  5009 Jul 29 08:29 Makefile
+          -rw-r--r--  1 root root 11047 Jul 29 08:29 allowedips.c
+          -rw-r--r--  1 root root  1874 Jul 29 08:29 allowedips.h
+          drwxr-xr-x 16 root root  4096 Jul 29 08:29 compat
+          -rw-r--r--  1 root root  7189 Jul 29 08:29 cookie.c
+          -rw-r--r--  1 root root  1671 Jul 29 08:29 cookie.h
+          drwxr-xr-x  4 root root  4096 Jul 29 08:29 crypto
+          -rw-r--r--  1 root root 18363 Jul 29 08:29 device.c
+          -rw-r--r--  1 root root  2010 Jul 29 08:29 device.h
+          -rw-r--r--  1 root root   292 Jul 29 08:29 dkms.conf
+          drwxr-xr-x  2 root root  4096 Jul 29 08:29 generated
+          -rw-r--r--  1 root root  2230 Jul 29 08:29 main.c
+          -rw-r--r--  1 root root  3779 Jul 29 08:29 messages.h
+          -rw-r--r--  1 root root 27028 Jul 29 08:29 netlink.c
+          -rw-r--r--  1 root root   581 Jul 29 08:29 netlink.h
+          -rw-r--r--  1 root root 27477 Jul 29 08:29 noise.c
+          -rw-r--r--  1 root root  4069 Jul 29 08:29 noise.h
+          drwxr-xr-x  2 root root  4096 Jul 29 08:29 patches
+          -rw-r--r--  1 root root  7788 Jul 29 08:29 peer.c
+          -rw-r--r--  1 root root  2274 Jul 29 08:29 peer.h
+          -rw-r--r--  1 root root  6437 Jul 29 08:29 peerlookup.c
+          -rw-r--r--  1 root root  1794 Jul 29 08:29 peerlookup.h
+          -rw-r--r--  1 root root  2715 Jul 29 08:29 queueing.c
+          -rw-r--r--  1 root root  6547 Jul 29 08:29 queueing.h
+          -rw-r--r--  1 root root  6366 Jul 29 08:29 ratelimiter.c
+          -rw-r--r--  1 root root   432 Jul 29 08:29 ratelimiter.h
+          -rw-r--r--  1 root root 20709 Jul 29 08:29 receive.c
+          drwxr-xr-x  2 root root  4096 Jul 29 08:29 selftest
+          -rw-r--r--  1 root root 15969 Jul 29 08:29 send.c
+          -rw-r--r--  1 root root 11746 Jul 29 08:29 socket.c
+          -rw-r--r--  1 root root  1725 Jul 29 08:29 socket.h
+          drwxr-xr-x  3 root root  4096 Jul 29 08:29 tests
+          -rw-r--r--  1 root root  8149 Jul 29 08:29 timers.c
+          -rw-r--r--  1 root root  1036 Jul 29 08:29 timers.h
+          drwxr-xr-x  2 root root  4096 Jul 29 08:29 uapi
+          -rw-r--r--  1 root root    74 Jul 29 08:29 version.h
+          echo "=== Looking for Makefiles ==="
+          ./Makefile
+          ./generated/Makefile
+          ./tests/qemu/Makefile
+          ./tests/debug.mk
           
           if [ -f "Makefile" ]; then
             echo "=== Main Makefile content (first 20 lines) ==="
@@ -993,38 +1038,82 @@ jobs:
         run: |
           cd buildroot-2017.11.1
           
-          # The simplest approach: remove the problematic patch entirely
-          # and use compiler flags to work around the SIGSTKSZ issue
-          echo "Removing problematic M4 SIGSTKSZ patch..."
+          echo "=== Applying comprehensive M4 SIGSTKSZ fix ==="
+          
+          # Remove any existing problematic patches
           rm -f package/m4/0002-fix-sigstksz-glibc-compatibility.patch
           
-          # Modify the M4 makefile to add compiler flags that work around the issue
+          # Create a proper source patch for M4 that fixes the SIGSTKSZ issue
+          mkdir -p package/m4/patches
+          cat > package/m4/patches/0001-fix-sigstksz-glibc-compatibility.patch << 'PATCH_EOF'
+--- a/lib/c-stack.c.orig	2024-01-01 00:00:00.000000000 +0000
++++ b/lib/c-stack.c	2024-01-01 00:00:00.000000000 +0000
+@@ -50,7 +50,13 @@
+ #if ! HAVE_STACK_T && ! defined stack_t
+ typedef struct sigaltstack stack_t;
+ #endif
+-#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
++
++/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
++#ifndef SIGSTKSZ
++# define SIGSTKSZ 16384
++#endif
++
++#elif HAVE_LIBSIGSEGV && (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))
+ 
+ # include <sigsegv.h>
+ 
+PATCH_EOF
+          
+          # Update the M4 makefile to include our patch and set proper build flags
           if [ -f "package/m4/m4.mk" ]; then
-            echo "Adding SIGSTKSZ workaround compiler flags to M4..."
+            echo "Updating M4 makefile with SIGSTKSZ fixes..."
             
-            # Add CPPFLAGS to define SIGSTKSZ as a constant value
-            if ! grep -q "SIGSTKSZ" package/m4/m4.mk; then
-              # Add the flags to the configure environment
-              sed -i '/^M4_CONF_OPTS/i M4_CONF_ENV += CPPFLAGS="$(HOST_CPPFLAGS) -DSIGSTKSZ=16384"' package/m4/m4.mk
-              echo "✓ Added SIGSTKSZ=16384 define to M4 build"
+            # Add our patch to the patch list if not already there
+            if ! grep -q "0001-fix-sigstksz-glibc-compatibility.patch" package/m4/m4.mk; then
+              # Find the line with M4_SOURCE and add our patch after any existing patches
+              if grep -q "define M4_EXTRACT_CMDS" package/m4/m4.mk; then
+                # Buildroot 2017 style - patches are applied automatically from patches/ directory
+                echo "✓ Patch will be auto-applied from patches/ directory"
+              else
+                # Add patch manually if needed
+                sed -i '/^M4_VERSION/a M4_PATCH = 0001-fix-sigstksz-glibc-compatibility.patch' package/m4/m4.mk
+              fi
             fi
             
-            # Also make sure to use -fcommon for older compatibility
-            if ! grep -q "fcommon" package/m4/m4.mk; then
-              sed -i '/^M4_CONF_ENV/s/$/ CFLAGS="$(HOST_CFLAGS) -fcommon"/' package/m4/m4.mk
-              echo "✓ Added -fcommon flag to M4 build"
+            # Set environment variables for the build
+            if ! grep -q "M4_CONF_ENV.*SIGSTKSZ" package/m4/m4.mk; then
+              # Method 1: Add CPPFLAGS with SIGSTKSZ definition
+              cat >> package/m4/m4.mk << 'MAKEFILE_EOF'
+
+# SIGSTKSZ compatibility fix for glibc 2.34+
+M4_CONF_ENV += CPPFLAGS="$(HOST_CPPFLAGS) -DSIGSTKSZ=16384"
+M4_CONF_ENV += CFLAGS="$(HOST_CFLAGS) -fcommon -Wno-error"
+M4_MAKE_ENV += CPPFLAGS="$(HOST_CPPFLAGS) -DSIGSTKSZ=16384"
+M4_MAKE_ENV += CFLAGS="$(HOST_CFLAGS) -fcommon -Wno-error"
+MAKEFILE_EOF
+              echo "✓ Added SIGSTKSZ build environment variables"
             fi
           else
-            echo "⚠ M4 makefile not found, using environment variables"
+            echo "⚠ M4 makefile not found at package/m4/m4.mk"
+            ls -la package/m4/ || echo "M4 package directory not found"
           fi
           
-          # Remove the patch from the makefile if it's referenced
-          if grep -q "0002-fix-sigstksz-glibc-compatibility.patch" package/m4/m4.mk 2>/dev/null; then
-            sed -i '/0002-fix-sigstksz-glibc-compatibility.patch/d' package/m4/m4.mk
-            echo "✓ Removed patch reference from M4 makefile"
-          fi
+          # Alternative approach: Create a wrapper script that sets the environment
+          cat > package/m4/sigstksz-wrapper.sh << 'WRAPPER_EOF'
+#!/bin/bash
+# SIGSTKSZ compatibility wrapper for M4 build
+export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384"
+export CFLAGS="${CFLAGS} -fcommon -Wno-error"
+exec "$@"
+WRAPPER_EOF
+          chmod +x package/m4/sigstksz-wrapper.sh
           
-          echo "M4 SIGSTKSZ compatibility fix completed using compiler flags"
+          echo "=== M4 SIGSTKSZ compatibility fixes applied ==="
+          echo "Applied fixes:"
+          echo "  1. Source patch for c-stack.c"
+          echo "  2. Build environment variables"
+          echo "  3. Wrapper script as fallback"
           
       - name: Initialize buildroot
         run: |
