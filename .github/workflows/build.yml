@@ -101,10 +101,68 @@ jobs:
           # Now do the build
           echo "=== BUILDING HEADERS ==="
           mkdir /headers
-          curl -o src.tar.bz2 $(jq -r '.["${{ matrix.device }}"]["${{ matrix.version }}"]' ci/ubnt-source.json)
-          tar -xf src.tar.bz2 --wildcards 'source/kernel_*' --strip-components 1
-          mv kernel_* kernel.tar.gz
-          tar -xf kernel.tar.gz --strip-components 1
+          
+          # Get the source URL and determine file extension
+          SOURCE_URL=$(jq -r '.["${{ matrix.device }}"]["${{ matrix.version }}"]' ci/ubnt-source.json)
+          echo "Source URL: $SOURCE_URL"
+          
+          # Check if URL is valid (not null)
+          if [ "$SOURCE_URL" = "null" ] || [ -z "$SOURCE_URL" ]; then
+            echo "ERROR: No source URL found for device ${{ matrix.device }} version ${{ matrix.version }}"
+            echo "Available combinations in ci/ubnt-source.json:"
+            jq -r 'to_entries[] | "\(.key): versions \(.value | keys | join(", "))"' ci/ubnt-source.json
+            exit 1
+          fi
+          
+          # Determine file extension and download appropriately
+          if [[ "$SOURCE_URL" == *.tbz2 ]]; then
+            echo "Downloading .tbz2 file..."
+            if ! curl -L -f -o src.tbz2 "$SOURCE_URL"; then
+              echo "ERROR: Failed to download $SOURCE_URL"
+              exit 1
+            fi
+            echo "Downloaded $(du -h src.tbz2 | cut -f1) file"
+            echo "Extracting .tbz2 file..."
+            tar -tf src.tbz2 | head -10 || echo "Could not list archive contents"
+            tar -xf src.tbz2 --wildcards 'source/kernel_*' --strip-components 1 2>/dev/null || \
+            tar -xf src.tbz2 --wildcards 'kernel_*' --strip-components 1 2>/dev/null || \
+            tar -xf src.tbz2 --strip-components 1
+          else
+            echo "Downloading .tar.bz2 file..."
+            if ! curl -L -f -o src.tar.bz2 "$SOURCE_URL"; then
+              echo "ERROR: Failed to download $SOURCE_URL"
+              exit 1
+            fi
+            echo "Downloaded $(du -h src.tar.bz2 | cut -f1) file"
+            echo "Extracting .tar.bz2 file..."
+            tar -tf src.tar.bz2 | head -10 || echo "Could not list archive contents"
+            tar -xf src.tar.bz2 --wildcards 'source/kernel_*' --strip-components 1 2>/dev/null || \
+            tar -xf src.tar.bz2 --wildcards 'kernel_*' --strip-components 1 2>/dev/null || \
+            tar -xf src.tar.bz2 --strip-components 1
+          fi
+          
+          # Find and extract kernel source
+          echo "=== Files present after extraction ==="
+          ls -la | head -10
+          
+          if ls kernel_* 1> /dev/null 2>&1; then
+            echo "Found kernel archive(s): $(ls kernel_*)"
+            mv kernel_* kernel.tar.gz
+            echo "Extracting kernel source..."
+            tar -xf kernel.tar.gz --strip-components 1
+          else
+            echo "Warning: No kernel_* archive found, assuming kernel source is already extracted"
+          fi
+          
+          echo "=== Final directory structure ==="
+          ls -la | head -10
+          echo "Looking for Makefile..."
+          if [ -f "Makefile" ]; then
+            echo "✓ Makefile found"
+            grep -E "^(VERSION|PATCHLEVEL|SUBLEVEL)" Makefile | head -3 || echo "No version info in Makefile"
+          else
+            echo "✗ Makefile not found"
+          fi
           
           # Enhanced DTC compilation fix for newer flex/bison versions
           echo "=== APPLYING COMPREHENSIVE DTC FIX ==="
@@ -149,8 +207,37 @@ jobs:
           
           # Configure the kernel
           echo "=== CONFIGURING KERNEL ==="
-          if [ ${{ matrix.version }} -ne 1 ]; then 
+          
+          # Determine the correct defconfig based on device and version
+          if [[ "${{ matrix.device }}" == "ugw"* ]]; then
+            # UGW devices use different defconfig naming
+            echo "Configuring for UGW device: ${{ matrix.device }}"
+            # For UGW devices, try common defconfig names
+            if [ -f "arch/mips/configs/ubnt_${{ matrix.device }}_defconfig" ]; then
+              make ARCH=mips ubnt_${{ matrix.device }}_defconfig
+            elif [ -f "arch/mips/configs/cavium_octeon_defconfig" ]; then
+              make ARCH=mips cavium_octeon_defconfig
+            elif [ -f "arch/mips/configs/octeon_defconfig" ]; then
+              make ARCH=mips octeon_defconfig
+            else
+              echo "Using default MIPS config for UGW device"
+              make ARCH=mips defconfig
+            fi
+          elif [ ${{ matrix.version }} -ne 1 ]; then 
+            # EdgeRouter v2 devices
+            echo "Configuring for EdgeRouter v2: ${{ matrix.device }}"
             make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig
+          else
+            # EdgeRouter v1 devices - try to find appropriate defconfig
+            echo "Configuring for EdgeRouter v1: ${{ matrix.device }}"
+            if [ -f "arch/mips/configs/ubnt_er_${{ matrix.device }}_defconfig" ]; then
+              make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig
+            elif [ -f "arch/mips/configs/cavium_octeon_defconfig" ]; then
+              make ARCH=mips cavium_octeon_defconfig
+            else
+              echo "Using default MIPS config for EdgeRouter v1"
+              make ARCH=mips defconfig
+            fi
           fi
           
           # Calculate optimal parallel jobs (75% of available cores)
