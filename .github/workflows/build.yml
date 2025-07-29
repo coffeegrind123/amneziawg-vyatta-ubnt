@@ -219,72 +219,70 @@ jobs:
             echo "Using default version info: $VERSION.$PATCHLEVEL.$SUBLEVEL"
           fi
           
-          # Create Makefile with proper kernel module build support
-          cat > Makefile << MAKEFILE_END
-# Kernel module build Makefile for WireGuard
-VERSION = $VERSION
-PATCHLEVEL = $PATCHLEVEL
-SUBLEVEL = $SUBLEVEL
-EXTRAVERSION = $EXTRAVERSION
-
-KERNELRELEASE = \$(VERSION).\$(PATCHLEVEL).\$(SUBLEVEL)\$(EXTRAVERSION)
-
-# Default architecture and cross-compiler (can be overridden)
-ARCH ?= mips
-CROSS_COMPILE ?= 
-
-# Important build variables
-export ARCH CROSS_COMPILE
-export srctree := \$(CURDIR)
-export objtree := \$(CURDIR)
-export src := \$(srctree)
-export obj := \$(objtree)
-
-# Kernel configuration
-CONFIG_MODULES = y
-CONFIG_MODULE_UNLOAD = y
-export CONFIG_MODULES CONFIG_MODULE_UNLOAD
-
-# Default target
-.PHONY: all modules modules_prepare clean help
-all: modules
-
-# Main modules target - the one that was missing
-modules:
-	@echo "Building kernel modules..."
-	@echo "ARCH=\$(ARCH) CROSS_COMPILE=\$(CROSS_COMPILE)"
-	@echo "KERNELRELEASE=\$(KERNELRELEASE)"
-	@if [ -f scripts/Makefile.build ]; then \\
-		\$(MAKE) -f \$(srctree)/Makefile \$(if \$(M),M=\$(M),) modules; \\
-	else \\
-		echo "Using simplified module build..."; \\
-		if [ -n "\$(M)" ]; then \\
-			\$(MAKE) -C \$(M) -f \$(M)/Makefile KERNELDIR=\$(CURDIR) modules_build; \\
-		else \\
-			echo "No module directory specified (M= parameter required)"; \\
-			exit 1; \\
-		fi; \\
-	fi
-
-modules_prepare:
-	@echo "Module preparation completed"
-
-modules_install:
-	@echo "Module install not implemented"
-
-clean:
-	@find . -name "*.ko" -o -name "*.o" -o -name "*.mod.c" -o -name "*.mod.o" | xargs rm -f 2>/dev/null || true
-	@rm -f modules.order Module.symvers 2>/dev/null || true
-
-help:
-	@echo "Available targets:"
-	@echo "  all         - Build all modules (default)"
-	@echo "  modules     - Build kernel modules"
-	@echo "  clean       - Clean build artifacts"
-	@echo "  help        - Show this help"
-	@echo ""
-	@echo "Usage: make modules M=/path/to/module/source ARCH=mips CROSS_COMPILE=toolchain-prefix-"
-MAKEFILE_END
+          # Create Makefile with proper kernel module build support using printf to avoid YAML issues
+          printf '# Kernel module build Makefile for WireGuard\n' > Makefile
+          printf 'VERSION = %s\n' "$VERSION" >> Makefile
+          printf 'PATCHLEVEL = %s\n' "$PATCHLEVEL" >> Makefile
+          printf 'SUBLEVEL = %s\n' "$SUBLEVEL" >> Makefile
+          printf 'EXTRAVERSION = %s\n' "$EXTRAVERSION" >> Makefile
+          printf '\n' >> Makefile
+          printf 'KERNELRELEASE = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)\n' >> Makefile
+          printf '\n' >> Makefile
+          printf '# Default architecture and cross-compiler (can be overridden)\n' >> Makefile
+          printf 'ARCH ?= mips\n' >> Makefile
+          printf 'CROSS_COMPILE ?= \n' >> Makefile
+          printf '\n' >> Makefile
+          printf '# Important build variables\n' >> Makefile
+          printf 'export ARCH CROSS_COMPILE\n' >> Makefile
+          printf 'export srctree := $(CURDIR)\n' >> Makefile
+          printf 'export objtree := $(CURDIR)\n' >> Makefile
+          printf 'export src := $(srctree)\n' >> Makefile
+          printf 'export obj := $(objtree)\n' >> Makefile
+          printf '\n' >> Makefile
+          printf '# Kernel configuration\n' >> Makefile
+          printf 'CONFIG_MODULES = y\n' >> Makefile
+          printf 'CONFIG_MODULE_UNLOAD = y\n' >> Makefile
+          printf 'export CONFIG_MODULES CONFIG_MODULE_UNLOAD\n' >> Makefile
+          printf '\n' >> Makefile
+          printf '# Default target\n' >> Makefile
+          printf '.PHONY: all modules modules_prepare clean help\n' >> Makefile
+          printf 'all: modules\n' >> Makefile
+          printf '\n' >> Makefile
+          printf '# Main modules target - the one that was missing\n' >> Makefile
+          printf 'modules:\n' >> Makefile
+          printf '\t@echo "Building kernel modules..."\n' >> Makefile
+          printf '\t@echo "ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)"\n' >> Makefile
+          printf '\t@echo "KERNELRELEASE=$(KERNELRELEASE)"\n' >> Makefile
+          printf '\t@if [ -f scripts/Makefile.build ]; then \\\n' >> Makefile
+          printf '\t\t$(MAKE) -f $(srctree)/Makefile $(if $(M),M=$(M),) modules; \\\n' >> Makefile
+          printf '\telse \\\n' >> Makefile
+          printf '\t\techo "Using simplified module build..."; \\\n' >> Makefile
+          printf '\t\tif [ -n "$(M)" ]; then \\\n' >> Makefile
+          printf '\t\t\t$(MAKE) -C $(M) -f $(M)/Makefile KERNELDIR=$(CURDIR) modules_build; \\\n' >> Makefile
+          printf '\t\telse \\\n' >> Makefile
+          printf '\t\t\techo "No module directory specified (M= parameter required)"; \\\n' >> Makefile
+          printf '\t\t\texit 1; \\\n' >> Makefile
+          printf '\t\tfi; \\\n' >> Makefile
+          printf '\tfi\n' >> Makefile
+          printf '\n' >> Makefile
+          printf 'modules_prepare:\n' >> Makefile
+          printf '\t@echo "Module preparation completed"\n' >> Makefile
+          printf '\n' >> Makefile
+          printf 'modules_install:\n' >> Makefile
+          printf '\t@echo "Module install not implemented"\n' >> Makefile
+          printf '\n' >> Makefile
+          printf 'clean:\n' >> Makefile
+          printf '\t@find . -name "*.ko" -o -name "*.o" -o -name "*.mod.c" -o -name "*.mod.o" | xargs rm -f 2>/dev/null || true\n' >> Makefile
+          printf '\t@rm -f modules.order Module.symvers 2>/dev/null || true\n' >> Makefile
+          printf '\n' >> Makefile
+          printf 'help:\n' >> Makefile
+          printf '\t@echo "Available targets:"\n' >> Makefile
+          printf '\t@echo "  all         - Build all modules (default)"\n' >> Makefile
+          printf '\t@echo "  modules     - Build kernel modules"\n' >> Makefile
+          printf '\t@echo "  clean       - Clean build artifacts"\n' >> Makefile
+          printf '\t@echo "  help        - Show this help"\n' >> Makefile
+          printf '\t@echo ""\n' >> Makefile
+          printf '\t@echo "Usage: make modules M=/path/to/module/source ARCH=mips CROSS_COMPILE=toolchain-prefix-"\n' >> Makefile
           
           # Copy necessary files for module compilation
           find . -path './include/*' -prune -o -path './scripts/*' -prune -o -type f \( -name 'Makefile*' -o -name 'Kconfig*' -o -name 'Kbuild*' -o -name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) -print | cpio -pdm "/headers"
