@@ -122,15 +122,15 @@ jobs:
           echo "Cleaning pre-generated DTC files..."
           rm -f scripts/dtc/dtc-lexer.lex.c scripts/dtc/dtc-parser.tab.c scripts/dtc/dtc-parser.tab.h 2>/dev/null || true
           
-          # Patch DTC Makefile to add -fcommon flag
-          if [ -f scripts/dtc/Makefile ]; then
-            echo "Patching DTC Makefile for yylloc fix..."
+          # Patch DTC Maketo add -fcommon flag
+          if [ -f scripts/dtc/Make]; then
+            echo "Patching DTC Makefor yylloc fix..."
             if ! grep -q "fcommon" scripts/dtc/Makefile; then
               # Add -fcommon flags for DTC compilation
               sed -i '/HOSTCFLAGS_DTC.*:=/a # Fix yylloc multiple definition issue\nHOSTCFLAGS_dtc-lexer.lex.o := $(HOSTCFLAGS_DTC) -fcommon -Wno-error\nHOSTCFLAGS_dtc-parser.tab.o := $(HOSTCFLAGS_DTC) -fcommon -Wno-error' scripts/dtc/Makefile
-              echo "DTC Makefile patched successfully"
+              echo "DTC Makepatched successfully"
             else
-              echo "DTC Makefile already contains fcommon flags"
+              echo "DTC Makealready contains fcommon flags"
             fi
           fi
           
@@ -192,7 +192,7 @@ jobs:
           
           # Build output headers
           make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare modules_prepare scripts
-          rm -f /headers/source /headers/Makefile 2>/dev/null || true
+          rm -f /headers/source /headers/Make2>/dev/null || true
           
           # Copy necessary files for module compilation
           find . -path './include/*' -prune -o -path './scripts/*' -prune -o -type f \( -name 'Makefile*' -o -name 'Kconfig*' -o -name 'Kbuild*' -o -name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) -print | cpio -pdm "/headers"
@@ -259,7 +259,7 @@ jobs:
           mkdir -p generated
           
           if [ ! -f "generated/Makefile" ]; then
-            echo "# Generated Makefile for WireGuard module" > generated/Makefile
+            echo "# Generated Makefor WireGuard module" > generated/Makefile
             echo "obj-m += wireguard.o" >> generated/Makefile
           fi
           
@@ -310,7 +310,7 @@ jobs:
       - name: Install dependencies and setup toolchain
         run: |
           apt-get update
-          apt-get install -y build-essential patch bc file
+          apt-get install -y build-essential patch bc file python3
           
           # Install and setup cross-compilation toolchain  
           echo "Setting up toolchain: ${{ matrix.toolchain }}"
@@ -359,7 +359,7 @@ jobs:
           tar -xf headers.tar
           # Enhanced kernel version detection
           KERNEL_VERSION=$(
-            grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Makefile | 
+            grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Make| 
             head -3 | cut -d'=' -f2 | tr -d ' ' | paste -sd '.' ||
             grep "LINUX_VERSION_CODE" $GITHUB_WORKSPACE/headers/include/generated/uapi/linux/version.h 2>/dev/null |
             awk '{print $3}' | python3 -c 'import sys; code=int(sys.stdin.read().strip()); print(f"{(code>>16)&0xFF}.{(code>>8)&0xFF}.{code&0xFF}")' || echo "3.10.107"
@@ -588,7 +588,7 @@ jobs:
           find . -name "Makefile*" -o -name "*.mk" | head -10
           
           if [ -f "Makefile" ]; then
-            echo "=== Main Makefile content (first 20 lines) ==="
+            echo "=== Main Makecontent (first 20 lines) ==="
             head -20 Makefile
           fi
           
@@ -677,11 +677,11 @@ jobs:
                   ls -la wireguard.ko
                   
                   # Verify the module
-                  file wireguard.ko
+                  wireguard.ko
                   echo "Module info:"
                   ${{ matrix.toolchain }}objdump -h wireguard.ko | head -10 || echo "Could not analyze module"
               else
-                  echo "=== ERROR: No module file found after build ==="
+                  echo "=== ERROR: No module found after build ==="
                   exit 1
               fi
           else
@@ -694,9 +694,9 @@ jobs:
           cd module/src
           echo "=== MODULE VALIDATION ==="
           if [ -f "wireguard.ko" ]; then
-            # Basic file checks
+            # Basic checks
             echo "Module size: $(stat -c%s wireguard.ko) bytes"
-            echo "Module type: $(file wireguard.ko)"
+            echo "Module type: $(wireguard.ko)"
             
             # Check for required symbols
             if ${{ matrix.toolchain }}nm wireguard.ko | grep -q "init_module\|cleanup_module"; then
@@ -705,7 +705,7 @@ jobs:
               echo "⚠ Warning: Standard module symbols not found"
             fi
           else
-            echo "❌ Module file not found!"
+            echo "❌ Module not found!"
             exit 1
           fi
           
