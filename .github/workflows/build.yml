@@ -509,12 +509,6 @@ jobs:
             ../scripts/version.sh > version.h
           fi
           
-          mkdir -p generated
-          
-          if [ ! -f "generated/Makefile" ]; then
-            echo "# Generated Makefile for WireGuard module" > generated/Makefile
-            echo "obj-m += wireguard.o" >> generated/Makefile
-          fi
           
           echo "=== Module source structure ==="
           find . -name "Makefile*" -o -name "*.mk" | head -10
@@ -905,86 +899,55 @@ jobs:
           echo "Kernel release: $KERNELRELEASE"
           echo "Parallel jobs: $PARALLEL_JOBS"
           
-          # Try multiple build approaches
-          BUILD_SUCCESS=0
+          # Use the official AmnesiaWG build system - no hacks needed!
+          echo "=== Building module using official AmnesiaWG Makefile ==="
+          echo "Build environment:"
+          echo "  KERNELDIR: $KERNELDIR"
+          echo "  ARCH: $ARCH"
+          echo "  CROSS_COMPILE: $CROSS_COMPILE"
+          echo "  KERNELRELEASE: $KERNELRELEASE"
+          echo "  EXTRA_CFLAGS: $KCFLAGS"
           
-          # Method 1: Direct kernel build using headers directory (where config files are)
-          echo "=== Attempting direct kernel build ==="
-          if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-              EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules 2>&1; then
-              echo "✓ Direct kernel build successful"
+          # The AmnesiaWG module comes with its own proper Makefile - just use it!
+          if make KERNELDIR="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+              KERNELRELEASE="$KERNELRELEASE" EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS; then
+              echo "✓ Module built successfully using official build system"
               BUILD_SUCCESS=1
           else
-              echo "Direct kernel build failed, trying method 2..."
-              
-              # Method 2: Module-specific Makefile using headers directory
-              echo "=== Attempting module-specific build ==="
-              if make KERNELDIR="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                  KERNELRELEASE="$KERNELRELEASE" V=1 -j$PARALLEL_JOBS module 2>&1; then
-                  echo "✓ Module-specific build successful"
-                  BUILD_SUCCESS=1
-              else
-                  echo "Module-specific build failed, trying method 3..."
-                  
-                  # Method 3: Use headers directory if source fails
-                  echo "=== Attempting build with headers directory ==="
-                  if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                      EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules 2>&1; then
-                      echo "✓ Headers directory build successful"
-                      BUILD_SUCCESS=1
-                  else
-                      echo "Headers build failed, trying method 4..."
-                      
-                      # Method 4: Force compatibility with custom build
-                      echo "=== Attempting forced compatibility build ==="
-                      # Create a simplified Kbuild file
-                      echo "obj-m := amneziawg.o" > Kbuild.simple
-                      echo "amneziawg-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o" >> Kbuild.simple
-                      echo "amneziawg-y += crypto/zinc/chacha20/chacha20.o" >> Kbuild.simple
-                      echo "amneziawg-y += crypto/zinc/poly1305/poly1305.o" >> Kbuild.simple
-                      echo "amneziawg-y += crypto/zinc/chacha20poly1305/chacha20poly1305.o" >> Kbuild.simple
-                      echo "amneziawg-y += crypto/zinc/blake2s/blake2s.o" >> Kbuild.simple
-                      echo "amneziawg-y += crypto/zinc/curve25519/curve25519.o" >> Kbuild.simple
-                      
-                      # Try with simplified build using headers directory
-                      if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                          KBUILD_EXTMOD="$(pwd)" EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS -f Kbuild.simple 2>&1; then
-                          echo "✓ Forced compatibility build successful"
-                          BUILD_SUCCESS=1
-                      fi
-                  fi
-              fi
+              echo "✗ Official build failed"
+              BUILD_SUCCESS=0
           fi
           
-          # Check for successful build
-          if [ $BUILD_SUCCESS -eq 1 ] || [ -f "amneziawg.ko" ] || [ -f "wireguard.ko" ]; then
-              # Find the built module
-              MODULE_FILE=""
+          # Check for successful build and handle the module file properly
+          if [ $BUILD_SUCCESS -eq 1 ]; then
+              echo "=== Locating built module ==="
+              
+              # The official AmnesiaWG build should produce amneziawg.ko
               if [ -f "amneziawg.ko" ]; then
-                  MODULE_FILE="amneziawg.ko"
+                  echo "Found amneziawg.ko, renaming to wireguard.ko for compatibility"
                   mv amneziawg.ko wireguard.ko
               elif [ -f "wireguard.ko" ]; then
-                  MODULE_FILE="wireguard.ko"
-              elif [ -f "generated/wireguard.ko" ]; then
-                  mv generated/wireguard.ko .
-                  MODULE_FILE="wireguard.ko"
-              fi
-              
-              if [ -n "$MODULE_FILE" ]; then
-                  ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
-                  echo "=== Module built successfully ==="
-                  ls -la wireguard.ko
-                  
-                  # Verify the module
-                  file wireguard.ko
-                  echo "Module info:"
-                  ${{ matrix.toolchain }}objdump -h wireguard.ko | head -10 || echo "Could not analyze module"
+                  echo "Found wireguard.ko"
               else
-                  echo "=== ERROR: No module found after build ==="
+                  echo "=== ERROR: No module found after successful build ==="
+                  echo "Files in current directory:"
+                  ls -la *.ko 2>/dev/null || echo "No .ko files found"
                   exit 1
               fi
+              
+              # Strip and verify the module
+              ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
+              echo "=== Module built successfully ==="
+              ls -la wireguard.ko
+              
+              # Verify the module
+              file wireguard.ko
+              echo "Module info:"
+              ${{ matrix.toolchain }}objdump -h wireguard.ko | head -10 || echo "Could not analyze module"
           else
-              echo "=== ALL BUILD METHODS FAILED ==="
+              echo "=== BUILD FAILED ==="
+              echo "Available files in directory:"
+              ls -la
               exit 1
           fi
           
