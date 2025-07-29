@@ -395,7 +395,14 @@ jobs:
           fi
           
           echo "Essential kernel build environment ready"
+          
+          # Create the tar file in the workspace root for artifact upload
+          cd "$GITHUB_WORKSPACE"
           tar -cf headers.tar /headers/
+          
+          echo "=== VERIFYING ARTIFACT LOCATION ==="
+          echo "Current directory: $(pwd)"
+          echo "Headers tar file: $(ls -lh headers.tar 2>/dev/null || echo 'NOT FOUND')"
           
           echo "=== HEADERS BUILD COMPLETED SUCCESSFULLY ==="
           
@@ -426,6 +433,15 @@ jobs:
           if [ -f "/headers/Makefile" ]; then
             echo "Makefile found, checking version info:"
             grep -E "^(VERSION|PATCHLEVEL|SUBLEVEL)" /headers/Makefile || echo "No version info"
+          fi
+          echo "=== ARTIFACT VERIFICATION ==="
+          echo "Current working directory: $(pwd)"
+          if [ -f "headers.tar" ]; then
+            echo "✓ headers.tar found: $(ls -lh headers.tar)"
+          else
+            echo "✗ headers.tar NOT found in $(pwd)"
+            echo "Files in current directory:"
+            ls -la
           fi
 
   module-prepare:
