@@ -357,22 +357,11 @@ jobs:
       - name: Detect kernel version
         run: |
           tar -xf headers.tar
-          # Enhanced kernel version detection
           KERNEL_VERSION=$(
             grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Makefile | 
             head -3 | cut -d'=' -f2 | tr -d ' ' | paste -sd '.' ||
             grep "LINUX_VERSION_CODE" $GITHUB_WORKSPACE/headers/include/generated/uapi/linux/version.h 2>/dev/null |
-            awk '{print $3}' | python3 -c "
-import sys
-try:
-    code = int(sys.stdin.read().strip())
-    major = (code >> 16) & 0xFF
-    minor = (code >> 8) & 0xFF
-    patch = code & 0xFF
-    print(f'{major}.{minor}.{patch}')
-except:
-    print('3.10.107')
-" || echo "3.10.107"
+            awk '{print $3}' | python3 -c 'import sys; code=int(sys.stdin.read().strip()); print(f"{(code>>16)&0xFF}.{(code>>8)&0xFF}.{code&0xFF}")' || echo "3.10.107"
           )
           echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
           echo "Detected kernel version: $KERNEL_VERSION"
