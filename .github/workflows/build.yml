@@ -908,17 +908,79 @@ jobs:
           echo "  KERNELRELEASE: $KERNELRELEASE"
           echo "  EXTRA_CFLAGS: $KCFLAGS"
           
-          # Bypass the AmnesiaWG Makefile wrapper and use kernel build system directly
-          # The AmnesiaWG Makefile is causing circular dependencies with the headers Makefile
-          echo "Using direct kernel build system to avoid circular dependencies"
+          # We need the platform-specific headers, but the headers directory has problematic Makefiles
+          # Solution: Use the headers for compilation but avoid the recursive build system
+          echo "Building module using platform-specific headers (avoiding circular dependencies)"
           
-          if make -C "$KERNELDIR" M="$(pwd)" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-              EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules; then
-              echo "✓ Module built successfully using direct kernel build"
-              BUILD_SUCCESS=1
+          # Verify we have the essential files from headers generation
+          if [ ! -f "$KERNELDIR/.config" ]; then
+              echo "ERROR: Missing kernel configuration (.config) - headers build may have failed"
+              exit 1
+          fi
+          
+          if [ ! -f "$KERNELDIR/include/generated/autoconf.h" ]; then
+              echo "ERROR: Missing autoconf.h - headers build may have failed" 
+              exit 1
+          fi
+          
+          echo "✓ Platform-specific headers verified"
+          echo "✓ Kernel config: $(wc -l < "$KERNELDIR/.config") lines"
+          echo "✓ Include path: $KERNELDIR/include"
+          
+          # Method 1: Use the clean kernel source directory (this should work!)
+          KERNEL_SRC_DIR="$KERNELDIR/source"
+          if [ -d "$KERNEL_SRC_DIR" ] && [ -f "$KERNEL_SRC_DIR/Makefile" ]; then
+              echo "=== Using clean kernel source directory ==="
+              echo "Source: $KERNEL_SRC_DIR"
+              echo "Output: $KERNELDIR" 
+              echo "Module: $(pwd)"
+              
+              # This is the correct way: use clean source with output directory
+              if make -C "$KERNEL_SRC_DIR" M="$(pwd)" O="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+                  EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules; then
+                  echo "✓ Module built successfully using clean kernel source"
+                  BUILD_SUCCESS=1
+              else
+                  echo "Clean kernel source build failed, this is unexpected since headers built successfully"
+                  echo "Checking source directory structure..."
+                  ls -la "$KERNEL_SRC_DIR" | head -10
+                  BUILD_SUCCESS=0
+              fi
           else
-              echo "✗ Direct kernel build failed"
+              echo "ERROR: Clean kernel source not found at $KERNEL_SRC_DIR"
+              echo "Headers directory structure:"
+              ls -la "$KERNELDIR"
               BUILD_SUCCESS=0
+          fi
+          
+          # Method 2: Direct compilation with careful path management  
+          if [ $BUILD_SUCCESS -eq 0 ]; then
+              echo "=== Using direct compilation with platform headers ==="
+              
+              # Create a clean build environment using the headers but avoiding problematic Makefiles
+              # Copy essential files to avoid path conflicts
+              cp "$KERNELDIR/.config" . 2>/dev/null || true
+              cp "$KERNELDIR/Module.symvers" . 2>/dev/null || true
+              
+              # Set up include paths to use platform-specific headers
+              PLATFORM_INCLUDES="-I$KERNELDIR/include -I$KERNELDIR/include/generated -I$KERNELDIR/arch/$ARCH/include -I$KERNELDIR/arch/$ARCH/include/generated"
+              
+              # Try building using the module's own Makefile but with careful environment
+              export KERNELDIR_ORIG="$KERNELDIR"
+              export KERNELDIR="$KERNEL_SRC_DIR"  # Point to source if available, otherwise keep original
+              
+              if make ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+                  EXTRA_CFLAGS="$KCFLAGS $PLATFORM_INCLUDES" \
+                  KDIR="$KERNELDIR_ORIG" V=1 -j$PARALLEL_JOBS; then
+                  echo "✓ Module built successfully using direct compilation with platform headers"
+                  BUILD_SUCCESS=1
+              else
+                  echo "✗ Direct compilation failed"
+                  BUILD_SUCCESS=0
+              fi
+              
+              # Restore original KERNELDIR
+              export KERNELDIR="$KERNELDIR_ORIG"
           fi
           
           # Check for successful build and handle the module file properly
