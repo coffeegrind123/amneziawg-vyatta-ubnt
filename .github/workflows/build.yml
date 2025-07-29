@@ -908,10 +908,10 @@ jobs:
           echo "  KERNELRELEASE: $KERNELRELEASE"
           echo "  EXTRA_CFLAGS: $KCFLAGS"
           
-          # The AmnesiaWG module comes with its own proper Makefile - just use it!
-          if make KERNELDIR="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+          # Use the official AmnesiaWG 'all' target (NOT 'module' which causes recursion)
+          if make all KERNELDIR="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
               KERNELRELEASE="$KERNELRELEASE" EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS; then
-              echo "✓ Module built successfully using official build system"
+              echo "✓ Module built successfully using official 'all' target"
               BUILD_SUCCESS=1
           else
               echo "✗ Official build failed"
