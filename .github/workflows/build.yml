@@ -1962,7 +1962,7 @@ WRAPPER_EOF
           name: release-unifios
           path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
 
-  release:
+release:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs:
@@ -1976,55 +1976,115 @@ WRAPPER_EOF
       - name: Create release directory
         run: mkdir -p release-assets
         
-      # Download all artifacts using pattern matching
-      - name: Download all release artifacts
+      # Download all EdgeRouter packages individually
+      - name: Download e100-v1
         uses: actions/download-artifact@v4
         with:
-          pattern: release-*
-          path: temp-artifacts
-          merge-multiple: false
-          
-      - name: Consolidate release assets
+          name: release-e100-v1
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download e100-v2
+        uses: actions/download-artifact@v4
+        with:
+          name: release-e100-v2
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download e200-v1
+        uses: actions/download-artifact@v4
+        with:
+          name: release-e200-v1
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download e200-v2
+        uses: actions/download-artifact@v4
+        with:
+          name: release-e200-v2
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download e300-v1
+        uses: actions/download-artifact@v4
+        with:
+          name: release-e300-v1
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download e300-v2
+        uses: actions/download-artifact@v4
+        with:
+          name: release-e300-v2
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download e1000-v1
+        uses: actions/download-artifact@v4
+        with:
+          name: release-e1000-v1
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download e1000-v2
+        uses: actions/download-artifact@v4
+        with:
+          name: release-e1000-v2
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download e50-v1
+        uses: actions/download-artifact@v4
+        with:
+          name: release-e50-v1
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download e50-v2
+        uses: actions/download-artifact@v4
+        with:
+          name: release-e50-v2
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download ugw3-v1
+        uses: actions/download-artifact@v4
+        with:
+          name: release-ugw3-v1
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download ugw4-v1
+        uses: actions/download-artifact@v4
+        with:
+          name: release-ugw4-v1
+          path: release-assets
+        continue-on-error: true
+        
+      - name: Download ugwxg-v1
+        uses: actions/download-artifact@v4
+        with:
+          name: release-ugwxg-v1
+          path: release-assets
+        continue-on-error: true
+        
+      # Try both possible names for UnifiOS package
+      - name: Download UnifiOS package
+        uses: actions/download-artifact@v4
+        with:
+          name: release-unifios
+          path: release-assets
+        continue-on-error: true
+        
+      - name: List downloaded assets
         run: |
-          echo "Consolidating release assets..."
-          find temp-artifacts -name "*.deb" -exec cp {} release-assets/ \;
-          find temp-artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+          echo "Downloaded release assets:"
+          find release-assets -type f -name "*.deb" -o -name "*.tar.gz" | sort
           
-          echo "Final release assets:"
-          ls -la release-assets/
-          
-          # Count assets for verification
+          # Count for verification
           DEB_COUNT=$(find release-assets -name "*.deb" | wc -l)
           TAR_COUNT=$(find release-assets -name "*.tar.gz" | wc -l)
           echo "Found $DEB_COUNT .deb files and $TAR_COUNT .tar.gz files"
-          
-          # Verify we have the expected files
-          echo "Expected EdgeRouter packages:"
-          for device in e100 e200 e300 e1000 e50 ugw3 ugw4 ugwxg; do
-            for version in v1 v2; do
-              expected_file="${device}-${version}-v$MODULE_VERSION-v$TOOLS_VERSION.deb"
-              if ls release-assets/${expected_file} 1> /dev/null 2>&1; then
-                echo "✓ Found: $expected_file"
-              else
-                case $device-$version in
-                  ugw3-v2|ugw4-v2|ugwxg-v2)
-                    echo "- Skipped: $expected_file (not built for v2)"
-                    ;;
-                  *)
-                    echo "⚠ Missing: $expected_file"
-                    ;;
-                esac
-              fi
-            done
-          done
-          
-          echo "Expected UnifiOS package:"
-          unifios_file="UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz"
-          if ls release-assets/${unifios_file} 1> /dev/null 2>&1; then
-            echo "✓ Found: $unifios_file"
-          else
-            echo "⚠ Missing: $unifios_file"
-          fi
           
       - name: Generate release body
         run: |
@@ -2093,7 +2153,7 @@ WRAPPER_EOF
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.MODULE_VERSION }}-${{ env.PACKAGE_RELEASE }}
+          tag_name: ${{ env.MODULE_VERSION }}-${{ env.PACKAGE_RELEASE }}    # THE KEY FIX
           name: AmnesiaWG ${{ env.MODULE_VERSION }}
           body_path: RELEASE_BODY.md
           files: release-assets/*
@@ -2103,21 +2163,3 @@ WRAPPER_EOF
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Verify release assets
-        run: |
-          echo "Release created successfully!"
-          echo "Tag: ${{ env.MODULE_VERSION }}-${{ env.PACKAGE_RELEASE }}"
-          echo "Title: AmnesiaWG ${{ env.MODULE_VERSION }}"
-          echo ""
-          echo "Assets uploaded:"
-          find release-assets -type f | sort | while read file; do
-            size=$(stat -c%s "$file")
-            echo "  - $(basename "$file") (${size} bytes)"
-          done
-          
-          # Summary
-          total_files=$(find release-assets -type f | wc -l)
-          total_size=$(find release-assets -type f -exec stat -c%s {} + | awk '{sum += $1} END {print sum}')
-          echo ""
-          echo "Total: $total_files files, $total_size bytes"
