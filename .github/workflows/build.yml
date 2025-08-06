@@ -1962,7 +1962,7 @@ WRAPPER_EOF
           name: release-unifios
           path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
 
-release:
+  release:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs:
