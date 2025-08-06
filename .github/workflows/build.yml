@@ -1490,9 +1490,9 @@ WRAPPER_EOF
     timeout-minutes: 180
     
     strategy:
+      fail-fast: false
       matrix:
         base: [udm-1.9.0-10, udm-1.10.0-8, udm-1.10.0-12, udm-se-2.2.4, udr-2.2.12]
-      fail-fast: false
       
     steps:
       - uses: actions/checkout@v4
