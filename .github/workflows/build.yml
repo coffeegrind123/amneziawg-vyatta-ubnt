@@ -1252,6 +1252,31 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
+
+      - name: Debug repository structure for UnifiOS jobs
+        run: |
+          echo "=== REPOSITORY STRUCTURE CHECK ==="
+          echo "Current directory: $(pwd)"
+          echo "Repository root files:"
+          ls -la
+          echo ""
+          echo "Does unifios directory exist?"
+          ls -la unifios/ || echo "❌ unifios directory MISSING!"
+          echo ""
+          echo "Does bases directory exist?"  
+          ls -la unifios/bases/ || echo "❌ bases directory MISSING!"
+          echo ""
+          echo "Available bases:"
+          ls -la unifios/bases/ | grep -E "(udm|udr)" || echo "❌ No UnifiOS bases found!"
+          echo ""
+          echo "Checking required files for udm-1.9.0-10:"
+          for file in versions.txt prefix buildroot-config.txt kernel-config; do
+            if [ -f "unifios/bases/udm-1.9.0-10/$file" ]; then
+              echo "✅ $file exists"
+            else
+              echo "❌ $file MISSING!"
+            fi
+          done
       
       - name: Cache buildroot
         uses: actions/cache@v4
