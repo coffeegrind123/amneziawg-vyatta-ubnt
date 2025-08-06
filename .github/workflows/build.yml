@@ -1963,203 +1963,209 @@ WRAPPER_EOF
           path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
 
   release:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    needs:
-      - package
-      - udm-package
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Create release directory
-        run: mkdir -p release-assets
+      runs-on: ubuntu-24.04
+      timeout-minutes: 30
+      permissions:
+        contents: write    # THIS WAS MISSING - Required per official docs
+      needs:
+        - package
+        - udm-package
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+  
+      steps:
+        - uses: actions/checkout@v4
         
-      # Download all EdgeRouter packages individually
-      - name: Download e100-v1
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e100-v1
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download e100-v2
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e100-v2
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download e200-v1
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e200-v1
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download e200-v2
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e200-v2
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download e300-v1
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e300-v1
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download e300-v2
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e300-v2
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download e1000-v1
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e1000-v1
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download e1000-v2
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e1000-v2
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download e50-v1
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e50-v1
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download e50-v2
-        uses: actions/download-artifact@v4
-        with:
-          name: release-e50-v2
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download ugw3-v1
-        uses: actions/download-artifact@v4
-        with:
-          name: release-ugw3-v1
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download ugw4-v1
-        uses: actions/download-artifact@v4
-        with:
-          name: release-ugw4-v1
-          path: release-assets
-        continue-on-error: true
-        
-      - name: Download ugwxg-v1
-        uses: actions/download-artifact@v4
-        with:
-          name: release-ugwxg-v1
-          path: release-assets
-        continue-on-error: true
-        
-      # Try both possible names for UnifiOS package
-      - name: Download UnifiOS package
-        uses: actions/download-artifact@v4
-        with:
-          name: release-unifios
-          path: release-assets
-        continue-on-error: true
-        
-      - name: List downloaded assets
-        run: |
-          echo "Downloaded release assets:"
-          find release-assets -type f -name "*.deb" -o -name "*.tar.gz" | sort
+        - name: Create release directory
+          run: mkdir -p release-assets
           
-          # Count for verification
-          DEB_COUNT=$(find release-assets -name "*.deb" | wc -l)
-          TAR_COUNT=$(find release-assets -name "*.tar.gz" | wc -l)
-          echo "Found $DEB_COUNT .deb files and $TAR_COUNT .tar.gz files"
+        # Download all EdgeRouter packages individually to match your artifact names
+        - name: Download e100-v1
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e100-v1
+            path: release-assets
+          continue-on-error: true
           
-      - name: Generate release body
-        run: |
-          cat > RELEASE_BODY.md << 'EOF'
-          ## AmnesiaWG ${{ env.MODULE_VERSION }}
+        - name: Download e100-v2
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e100-v2
+            path: release-assets
+          continue-on-error: true
           
-          **Changelog**
-          - Updated module to ${{ env.MODULE_VERSION }}
-          - Updated tools to ${{ env.TOOLS_VERSION }}
+        - name: Download e200-v1
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e200-v1
+            path: release-assets
+          continue-on-error: true
           
-          ## Versions
+        - name: Download e200-v2
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e200-v2
+            path: release-assets
+          continue-on-error: true
           
-          | Name | Version |
-          |------|---------|
-          | Module | ${{ env.MODULE_VERSION }} |
-          | Tools | ${{ env.TOOLS_VERSION }} |
-          | EdgeOS v1 | ${{ env.FIRMWARE_ER_v1 }} |
-          | EdgeOS v2 | ${{ env.FIRMWARE_ER_v2 }} |
-          | USG firmware | ${{ env.FIRMWARE_UGW }} |
+        - name: Download e300-v1
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e300-v1
+            path: release-assets
+          continue-on-error: true
           
-          See below for binaries.
+        - name: Download e300-v2
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e300-v2
+            path: release-assets
+          continue-on-error: true
           
-          **IMPORTANT:** EdgeOS devices have different packages, one for EdgeOS ${{ env.FIRMWARE_ER_v1 }} (marked v1) and one for EdgeOS ${{ env.FIRMWARE_ER_v2 }} (marked v2). Make sure to download the right one. The installer will produce an error if you use the wrong version.
+        - name: Download e1000-v1
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e1000-v1
+            path: release-assets
+          continue-on-error: true
           
-          ## Device names
+        - name: Download e1000-v2
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e1000-v2
+            path: release-assets
+          continue-on-error: true
           
-          The naming scheme for source packages is a bit counter intuitive. Here is a list to find out which package is for your device.
+        - name: Download e50-v1
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e50-v1
+            path: release-assets
+          continue-on-error: true
           
-          **E50:**
-          - EdgeRouter X
-          - EdgeRouter X SFP
+        - name: Download e50-v2
+          uses: actions/download-artifact@v4
+          with:
+            name: release-e50-v2
+            path: release-assets
+          continue-on-error: true
           
-          **E100:**
-          - EdgeRouter Lite
-          - EdgeRouter PoE
+        - name: Download ugw3-v1
+          uses: actions/download-artifact@v4
+          with:
+            name: release-ugw3-v1
+            path: release-assets
+          continue-on-error: true
           
-          **E200:**
-          - EdgeRouter 8
-          - EdgeRouter Pro
+        - name: Download ugw4-v1
+          uses: actions/download-artifact@v4
+          with:
+            name: release-ugw4-v1
+            path: release-assets
+          continue-on-error: true
           
-          **E300:**
-          - EdgeRouter 4
-          - EdgeRouter 6P
-          - EdgeRouter 12
+        - name: Download ugwxg-v1
+          uses: actions/download-artifact@v4
+          with:
+            name: release-ugwxg-v1
+            path: release-assets
+          continue-on-error: true
           
-          **E1000:**
-          - EdgeRouter Infinity
+        # Download UnifiOS package
+        - name: Download UnifiOS package
+          uses: actions/download-artifact@v4
+          with:
+            name: release-unifios
+            path: release-assets
+          continue-on-error: true
           
-          **UGW3:**
-          - UniFi Security Gateway
-          
-          **UGW4:**
-          - UniFi Security Gateway Pro 4
-          
-          **UGWXG:**
-          - UniFi Security Gateway XG 8
-          
-          **UnifiOS:**
-          - UniFi Dream Machine (UDM)
-          - UniFi Dream Machine Pro (UDM-Pro)
-          - UniFi Dream Machine Special Edition (UDM-SE)
-          - UniFi Dream Router (UDR)
-          - UniFi Next-Gen Gateway (UXG-Pro)
-          EOF
-          
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.MODULE_VERSION }}-${{ env.PACKAGE_RELEASE }}    # THE KEY FIX
-          name: AmnesiaWG ${{ env.MODULE_VERSION }}
-          body_path: RELEASE_BODY.md
-          files: release-assets/*
-          draft: false
-          prerelease: false
-          generate_release_notes: false
-          make_latest: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        - name: List downloaded assets
+          run: |
+            echo "Downloaded release assets:"
+            find release-assets -type f -name "*.deb" -o -name "*.tar.gz" | sort
+            
+            # Count for verification
+            DEB_COUNT=$(find release-assets -name "*.deb" | wc -l)
+            TAR_COUNT=$(find release-assets -name "*.tar.gz" | wc -l)
+            echo "Found $DEB_COUNT .deb files and $TAR_COUNT .tar.gz files"
+            
+            # Verify we have at least some files
+            if [ $((DEB_COUNT + TAR_COUNT)) -eq 0 ]; then
+              echo "ERROR: No release assets found!"
+              exit 1
+            fi
+            
+        - name: Generate release body
+          run: |
+            cat > RELEASE_BODY.md << 'EOF'
+            ## AmnesiaWG ${{ env.MODULE_VERSION }}
+            
+            **Changelog**
+            - Updated module to ${{ env.MODULE_VERSION }}
+            - Updated tools to ${{ env.TOOLS_VERSION }}
+            
+            ## Versions
+            
+            | Name | Version |
+            |------|---------|
+            | Module | ${{ env.MODULE_VERSION }} |
+            | Tools | ${{ env.TOOLS_VERSION }} |
+            | EdgeOS v1 | ${{ env.FIRMWARE_ER_v1 }} |
+            | EdgeOS v2 | ${{ env.FIRMWARE_ER_v2 }} |
+            | USG firmware | ${{ env.FIRMWARE_UGW }} |
+            
+            See below for binaries.
+            
+            **IMPORTANT:** EdgeOS devices have different packages, one for EdgeOS ${{ env.FIRMWARE_ER_v1 }} (marked v1) and one for EdgeOS ${{ env.FIRMWARE_ER_v2 }} (marked v2). Make sure to download the right one. The installer will produce an error if you use the wrong version.
+            
+            ## Device names
+            
+            The naming scheme for source packages is a bit counter intuitive. Here is a list to find out which package is for your device.
+            
+            **E50:**
+            - EdgeRouter X
+            - EdgeRouter X SFP
+            
+            **E100:**
+            - EdgeRouter Lite
+            - EdgeRouter PoE
+            
+            **E200:**
+            - EdgeRouter 8
+            - EdgeRouter Pro
+            
+            **E300:**
+            - EdgeRouter 4
+            - EdgeRouter 6P
+            - EdgeRouter 12
+            
+            **E1000:**
+            - EdgeRouter Infinity
+            
+            **UGW3:**
+            - UniFi Security Gateway
+            
+            **UGW4:**
+            - UniFi Security Gateway Pro 4
+            
+            **UGWXG:**
+            - UniFi Security Gateway XG 8
+            
+            **UnifiOS:**
+            - UniFi Dream Machine (UDM)
+            - UniFi Dream Machine Pro (UDM-Pro)
+            - UniFi Dream Machine Special Edition (UDM-SE)
+            - UniFi Dream Router (UDR)
+            - UniFi Next-Gen Gateway (UXG-Pro)
+            EOF
+            
+        - name: Create GitHub Release
+          uses: softprops/action-gh-release@v2
+          with:
+            tag_name: ${{ env.MODULE_VERSION }}-${{ env.PACKAGE_RELEASE }}
+            name: AmnesiaWG ${{ env.MODULE_VERSION }}
+            body_path: RELEASE_BODY.md
+            files: release-assets/*
+            draft: false
+            prerelease: false
+            generate_release_notes: false
+            make_latest: true
