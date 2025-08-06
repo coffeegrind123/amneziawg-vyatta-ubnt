@@ -1,9 +1,14 @@
 name: Release
 
 on:
+  workflow_run:
+    workflows: ["Build kernel module and tools"]
+    types: [completed]
+    branches: [master]
   push:
     tags:
       - '*'
+  workflow_dispatch: # Allow manual triggering for testing
 
 env:
   MODULE_VERSION: "1.0.20241112"
@@ -15,7 +20,14 @@ env:
 
 jobs:
   create_release:
-    if: github.ref != 'refs/tags/v1'
+    # Only run if:
+    # - workflow_run completed successfully, OR
+    # - manual tag push (but not the v1 tag), OR  
+    # - manual workflow_dispatch
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'push' && github.ref != 'refs/tags/v1') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,90 +36,156 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Get latest successful build
-        id: get_build
+      - name: Determine release context
+        id: context
         run: |
-          # Get the latest successful workflow run from master branch
-          echo "Getting latest successful build from master branch..."
+          if [ "${{ github.event_name }}" == "workflow_run" ]; then
+            # Auto-release from successful build
+            TAG="v${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}"
+            RUN_ID="${{ github.event.workflow_run.id }}"
+            RELEASE_TYPE="auto"
+            echo "Auto-release triggered by successful build"
+          elif [ "${{ github.event_name }}" == "push" ]; then
+            # Manual tag-based release
+            TAG="${{ github.ref_name }}"
+            RUN_ID="" # Will need to find latest successful run
+            RELEASE_TYPE="manual"
+            echo "Manual release triggered by tag: $TAG"
+          else
+            # Manual workflow dispatch
+            TAG="v${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}"
+            RUN_ID="" # Will need to find latest successful run
+            RELEASE_TYPE="dispatch"
+            echo "Manual release triggered by workflow dispatch"
+          fi
           
-          # Use GitHub API to get the latest successful workflow run
-          WORKFLOW_RUN=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build.yml/runs?branch=master&status=success&per_page=1" \
-            | jq -r '.workflow_runs[0].id')
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "release_type=$RELEASE_TYPE" >> $GITHUB_OUTPUT
           
-          if [ "$WORKFLOW_RUN" == "null" ] || [ -z "$WORKFLOW_RUN" ]; then
-            echo "No successful build found!"
+      - name: Find latest successful build (for manual releases)
+        id: find_build
+        if: steps.context.outputs.run_id == ''
+        run: |
+          echo "Finding latest successful build from master branch..."
+          
+          # Use GitHub CLI to get the latest successful workflow run
+          RUN_ID=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/workflows/build.yml/runs?branch=master&status=success&per_page=1" \
+            --jq '.workflow_runs[0].id')
+          
+          if [ "$RUN_ID" == "null" ] || [ -z "$RUN_ID" ]; then
+            echo "❌ No successful build found!"
             exit 1
           fi
           
-          echo "Found successful build: $WORKFLOW_RUN"
-          echo "build_id=$WORKFLOW_RUN" >> $GITHUB_OUTPUT
+          echo "✅ Found successful build: $RUN_ID"
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Create release directory
         run: mkdir -p release-assets
         
-      - name: Download all release artifacts
+      - name: Download release artifacts
         run: |
-          # Download artifacts from the successful build
-          BUILD_ID="${{ steps.get_build.outputs.build_id }}"
-          echo "Downloading artifacts from build $BUILD_ID"
+          RUN_ID="${{ steps.context.outputs.run_id || steps.find_build.outputs.run_id }}"
+          echo "Downloading artifacts from build run: $RUN_ID"
           
-          # List all artifacts from the build
-          ARTIFACTS=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$BUILD_ID/artifacts" \
-            | jq -r '.artifacts[] | select(.name | startswith("release-")) | .name')
+          # List all artifacts from the build run
+          echo "Available artifacts:"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name | startswith("release-")) | .name'
           
-          echo "Found artifacts:"
-          echo "$ARTIFACTS"
+          # Download all release artifacts using GitHub CLI
+          gh run download $RUN_ID \
+            --pattern "release-*" \
+            --dir release-assets/
           
-          # Download each artifact
-          for artifact in $ARTIFACTS; do
-            echo "Downloading $artifact..."
-            gh run download $BUILD_ID --name "$artifact" --dir release-assets/ || echo "Failed to download $artifact"
-          done
-          
-          # List downloaded files
-          echo "Downloaded files:"
-          find release-assets -type f | sort
+          echo "✅ Downloaded artifacts to release-assets/"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Organize artifacts
+        run: |
+          echo "=== ORGANIZING RELEASE ARTIFACTS ==="
+          
+          # The download creates subdirectories for each artifact
+          # Move all files to the root of release-assets
+          find release-assets -mindepth 2 -type f \( -name "*.deb" -o -name "*.tar.gz" \) -exec mv {} release-assets/ \;
+          
+          # Remove empty subdirectories
+          find release-assets -mindepth 1 -type d -empty -delete
+          
+          echo "Final artifact structure:"
+          find release-assets -type f | sort
           
       - name: Validate release assets
         run: |
           echo "=== RELEASE ASSETS VALIDATION ==="
           
-          # List all files
-          echo "All files in release-assets:"
-          find release-assets -type f -name "*.deb" -o -name "*.tar.gz" | sort
+          # List all release files
+          echo "All release files:"
+          find release-assets -type f \( -name "*.deb" -o -name "*.tar.gz" \) | sort
           
-          # Count files
+          # Count files by type
           DEB_COUNT=$(find release-assets -name "*.deb" | wc -l)
-          TAR_COUNT=$(find release-assets -name "*.tar.gz" | wc -l)
+          TAR_COUNT=$(find release-assets -name "*.tar.gz" | wc -l) 
           TOTAL_COUNT=$((DEB_COUNT + TAR_COUNT))
           
-          echo "Summary:"
-          echo "  - .deb files: $DEB_COUNT"
-          echo "  - .tar.gz files: $TAR_COUNT" 
-          echo "  - Total files: $TOTAL_COUNT"
+          echo ""
+          echo "📊 Summary:"
+          echo "  • EdgeOS .deb packages: $DEB_COUNT"
+          echo "  • UnifiOS .tar.gz packages: $TAR_COUNT"
+          echo "  • Total release assets: $TOTAL_COUNT"
           
+          # Validate we have the expected number of artifacts
           if [ $TOTAL_COUNT -eq 0 ]; then
-            echo "ERROR: No release assets found!"
+            echo "❌ ERROR: No release assets found!"
+            echo "Available files in release-assets:"
+            ls -la release-assets/ || echo "Directory is empty"
             exit 1
           fi
           
-          # Create comma-separated list for artifacts
-          ARTIFACTS_LIST=$(find release-assets -type f | tr '\n' ',' | sed 's/,$//')
-          echo "ARTIFACTS_LIST=$ARTIFACTS_LIST" >> $GITHUB_ENV
+          if [ $DEB_COUNT -eq 0 ] && [ $TAR_COUNT -eq 0 ]; then
+            echo "❌ ERROR: No .deb or .tar.gz files found!"
+            exit 1
+          fi
           
-          echo "Artifacts ready for release:"
-          echo "$ARTIFACTS_LIST" | tr ',' '\n' | sort
+          echo "✅ Release assets validation passed"
+          
+      - name: Create or update tag (for auto-releases)
+        if: steps.context.outputs.release_type == 'auto'
+        run: |
+          TAG="${{ steps.context.outputs.tag }}"
+          echo "Creating release tag: $TAG"
+          
+          # Check if tag already exists
+          if git tag -l | grep -q "^$TAG$"; then
+            echo "Tag $TAG already exists, deleting it first"
+            git tag -d $TAG || true
+            git push --delete origin $TAG || true
+          fi
+          
+          # Create and push new tag
+          git tag $TAG
+          git push origin $TAG
+          
+          echo "✅ Created and pushed tag: $TAG"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Generate release body
         run: |
+          TAG="${{ steps.context.outputs.tag }}"
+          RELEASE_TYPE="${{ steps.context.outputs.release_type }}"
+          
+          # Create release body
           cat > RELEASE_BODY.md << 'EOF'
           ## AmnesiaWG ${{ env.MODULE_VERSION }}
           
@@ -117,66 +195,63 @@ jobs:
           
           ## Versions
           
-          | Name | Version |
-          |------|---------|
+          | Component | Version |
+          |-----------|---------|
           | Module | ${{ env.MODULE_VERSION }} |
           | Tools | ${{ env.TOOLS_VERSION }} |
           | EdgeOS v1 | ${{ env.FIRMWARE_ER_v1 }} |
           | EdgeOS v2 | ${{ env.FIRMWARE_ER_v2 }} |
           | USG firmware | ${{ env.FIRMWARE_UGW }} |
           
-          See below for binaries.
+          ---
           
-          **IMPORTANT:** EdgeOS devices have different packages, one for EdgeOS ${{ env.FIRMWARE_ER_v1 }} (marked v1) and one for EdgeOS ${{ env.FIRMWARE_ER_v2 }} (marked v2). Make sure to download the right one. The installer will produce an error if you use the wrong version.
+          ## 📦 Installation Packages
           
-          ## Device names
+          **IMPORTANT:** EdgeOS devices have different packages for different firmware versions:
+          - **v1** packages: For EdgeOS ${{ env.FIRMWARE_ER_v1 }}
+          - **v2** packages: For EdgeOS ${{ env.FIRMWARE_ER_v2 }}
           
-          The naming scheme for source packages is a bit counter intuitive. Here is a list to find out which package is for your device.
+          ⚠️ **Make sure to download the correct version for your firmware!** The installer will error if you use the wrong version.
           
-          **E50:**
-          - EdgeRouter X
-          - EdgeRouter X SFP
+          ## 🔧 Device Mapping
           
-          **E100:**
-          - EdgeRouter Lite
-          - EdgeRouter PoE
+          | Package Name | Compatible Devices |
+          |--------------|-------------------|
+          | **e50** | EdgeRouter X, EdgeRouter X SFP |
+          | **e100** | EdgeRouter Lite, EdgeRouter PoE |
+          | **e200** | EdgeRouter 8, EdgeRouter Pro |
+          | **e300** | EdgeRouter 4, EdgeRouter 6P, EdgeRouter 12 |
+          | **e1000** | EdgeRouter Infinity |
+          | **ugw3** | UniFi Security Gateway |
+          | **ugw4** | UniFi Security Gateway Pro 4 |
+          | **ugwxg** | UniFi Security Gateway XG 8 |
+          | **UnifiOS** | UDM, UDM-Pro, UDM-SE, UDR, UXG-Pro |
           
-          **E200:**
-          - EdgeRouter 8
-          - EdgeRouter Pro
+          ## 🚀 Quick Start
           
-          **E300:**
-          - EdgeRouter 4
-          - EdgeRouter 6P
-          - EdgeRouter 12
+          1. Download the appropriate package for your device
+          2. Upload and install following the installation guide
+          3. Configure your WireGuard interfaces
+          4. Enjoy secure networking with AmnesiaWG!
           
-          **E1000:**
-          - EdgeRouter Infinity
+          ---
           
-          **UGW3:**
-          - UniFi Security Gateway
-          
-          **UGW4:**
-          - UniFi Security Gateway Pro 4
-          
-          **UGWXG:**
-          - UniFi Security Gateway XG 8
-          
-          **UnifiOS:**
-          - UniFi Dream Machine (UDM)
-          - UniFi Dream Machine Pro (UDM-Pro)
-          - UniFi Dream Machine Special Edition (UDM-SE)
-          - UniFi Dream Router (UDR)
-          - UniFi Next-Gen Gateway (UXG-Pro)
           EOF
+          
+          # Add release type info
+          if [ "$RELEASE_TYPE" == "auto" ]; then
+            echo "*This release was automatically created from a successful build.*" >> RELEASE_BODY.md
+          fi
+          
+          echo "Generated release body for tag: $TAG"
           
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ github.ref_name }}
-          name: AmnesiaWG ${{ env.MODULE_VERSION }}
+          tag: ${{ steps.context.outputs.tag }}
+          name: "AmnesiaWG ${{ env.MODULE_VERSION }}"
           bodyFile: RELEASE_BODY.md
-          artifacts: ${{ env.ARTIFACTS_LIST }}
+          artifacts: "release-assets/*"
           draft: false
           prerelease: false
           allowUpdates: true
@@ -186,10 +261,24 @@ jobs:
           
       - name: Release summary
         run: |
-          echo "=== RELEASE CREATED SUCCESSFULLY ==="
-          echo "Release tag: ${{ github.ref_name }}"
-          echo "Release name: AmnesiaWG ${{ env.MODULE_VERSION }}"
-          echo "Assets uploaded: $(echo "${{ env.ARTIFACTS_LIST }}" | tr ',' '\n' | wc -l)"
+          TAG="${{ steps.context.outputs.tag }}"
+          RELEASE_TYPE="${{ steps.context.outputs.release_type }}"
+          ASSET_COUNT=$(find release-assets -type f \( -name "*.deb" -o -name "*.tar.gz" \) | wc -l)
+          
+          echo "🎉 === RELEASE CREATED SUCCESSFULLY === 🎉"
           echo ""
-          echo "🎉 Release is now available at:"
-          echo "https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+          echo "📋 Release Details:"
+          echo "  • Tag: $TAG" 
+          echo "  • Name: AmnesiaWG ${{ env.MODULE_VERSION }}"
+          echo "  • Type: $RELEASE_TYPE release"
+          echo "  • Assets: $ASSET_COUNT files"
+          echo ""
+          echo "🔗 Release URL:"
+          echo "https://github.com/${{ github.repository }}/releases/tag/$TAG"
+          echo ""
+          echo "📦 Assets uploaded:"
+          find release-assets -type f \( -name "*.deb" -o -name "*.tar.gz" \) | sort | sed 's/release-assets\//  • /'
+          echo ""
+          if [ "$RELEASE_TYPE" == "auto" ]; then
+            echo "✨ This release was automatically created from successful build!"
+          fi
