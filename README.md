@@ -15,5 +15,5 @@ Credits
 
 Support for EdgeOS and Unifi Gateway was originally developed by [@Lochnair](https://github.com/Lochnair).  
 Support for UnifiOS was developed by [@tusc](https://github.com/tusc) and integrated into this repository by [@peacey](https://github.com/peacey).  
-See the [list of contributors](https://github.com/WireGuard/wireguard-vyatta-ubnt/graphs/contributors) and the [commit history](https://github.com/WireGuard/wireguard-vyatta-ubnt/commits/master) for the many other contributions.
-Amnezia-WG github actions workflow by [@coffeegrind123](https://github.com/coffeegrind123).  
+See the [list of contributors](https://github.com/WireGuard/wireguard-vyatta-ubnt/graphs/contributors) and the [commit history](https://github.com/WireGuard/wireguard-vyatta-ubnt/commits/master) for the many other contributions.  
+Amnezia-WG github actions workflow by [@coffeegrind123](https://github.com/coffeegrind123).
