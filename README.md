@@ -1,9 +1,9 @@
-WireGuard for Ubiquiti
+Amnezia-WG for Ubiquiti
 ======================
 
-WireGuard for EdgeRouter, Unifi Gateway and Unifi Dream Machine
+Amnezia-WG (WireGuard but with added privacy and obfuscation) for EdgeRouter, Unifi Gateway and Unifi Dream Machine
 
-For a full list of supported devices, please see the latest release at [releases](https://github.com/WireGuard/wireguard-vyatta-ubnt/releases).
+For a full list of supported devices, please see the latest release at [releases](https://github.com/coffeegrind123/amneziawg-vyatta-ubnt/releases).
 
 The installation instructions can be found in the Wiki:
 
@@ -16,3 +16,4 @@ Credits
 Support for EdgeOS and Unifi Gateway was originally developed by [@Lochnair](https://github.com/Lochnair).  
 Support for UnifiOS was developed by [@tusc](https://github.com/tusc) and integrated into this repository by [@peacey](https://github.com/peacey).  
 See the [list of contributors](https://github.com/WireGuard/wireguard-vyatta-ubnt/graphs/contributors) and the [commit history](https://github.com/WireGuard/wireguard-vyatta-ubnt/commits/master) for the many other contributions.
+Amnezia-WG github actions workflow by [@coffeegrind123](https://github.com/coffeegrind123).  
