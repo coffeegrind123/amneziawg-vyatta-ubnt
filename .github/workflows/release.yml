@@ -187,8 +187,6 @@ jobs:
           
           # Create release body
           cat > RELEASE_BODY.md << 'EOF'
-          ## AmnesiaWG ${{ env.MODULE_VERSION }}
-          
           **Changelog**
           - Updated module to ${{ env.MODULE_VERSION }}
           - Updated tools to ${{ env.TOOLS_VERSION }}
@@ -226,22 +224,7 @@ jobs:
           | **ugw4** | UniFi Security Gateway Pro 4 |
           | **ugwxg** | UniFi Security Gateway XG 8 |
           | **UnifiOS** | UDM, UDM-Pro, UDM-SE, UDR, UXG-Pro |
-          
-          ## 🚀 Quick Start
-          
-          1. Download the appropriate package for your device
-          2. Upload and install following the installation guide
-          3. Configure your WireGuard interfaces
-          4. Enjoy secure networking with AmnesiaWG!
-          
-          ---
-          
           EOF
-          
-          # Add release type info
-          if [ "$RELEASE_TYPE" == "auto" ]; then
-            echo "*This release was automatically created from a successful build.*" >> RELEASE_BODY.md
-          fi
           
           echo "Generated release body for tag: $TAG"
           
@@ -249,7 +232,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ steps.context.outputs.tag }}
-          name: "AmnesiaWG ${{ env.MODULE_VERSION }}"
+          name: "Amnezia-WG ${{ env.MODULE_VERSION }}"
           bodyFile: RELEASE_BODY.md
           artifacts: "release-assets/*"
           draft: false
@@ -269,7 +252,7 @@ jobs:
           echo ""
           echo "📋 Release Details:"
           echo "  • Tag: $TAG" 
-          echo "  • Name: AmnesiaWG ${{ env.MODULE_VERSION }}"
+          echo "  • Name: Amnezia-WG ${{ env.MODULE_VERSION }}"
           echo "  • Type: $RELEASE_TYPE release"
           echo "  • Assets: $ASSET_COUNT files"
           echo ""
