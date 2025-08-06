@@ -1697,6 +1697,42 @@ WRAPPER_EOF
           name: modules-${{ matrix.base }}
           path: modules
 
+      - name: Debug UnifiOS structure
+        run: |
+          echo "=== UNIFIOS DIRECTORY STRUCTURE DEBUG ==="
+          echo "Repository root files:"
+          ls -la | grep unifios
+          echo ""
+          echo "UnifiOS directory:"
+          ls -la unifios/ || echo "unifios directory not found!"
+          echo ""
+          echo "Bases directory:"
+          ls -la unifios/bases/ || echo "bases directory not found!"
+          echo ""
+          echo "Matrix base: ${{ matrix.base }}"
+          echo "Checking files for ${{ matrix.base }}:"
+          
+          if [ -d "unifios/bases/${{ matrix.base }}" ]; then
+            ls -la "unifios/bases/${{ matrix.base }}/"
+            for file in versions.txt prefix buildroot-config.txt kernel-config; do
+              if [ -f "unifios/bases/${{ matrix.base }}/$file" ]; then
+                echo "✅ $file exists ($(stat -c%s unifios/bases/${{ matrix.base }}/$file) bytes)"
+                if [ "$file" = "versions.txt" ] || [ "$file" = "prefix" ]; then
+                  echo "   Content: '$(cat unifios/bases/${{ matrix.base }}/$file)'"
+                fi
+              else
+                echo "❌ $file MISSING!"
+              fi
+            done
+          else
+            echo "❌ Base directory 'unifios/bases/${{ matrix.base }}' does not exist!"
+            echo "Available bases:"
+            ls -la unifios/bases/ || echo "No bases directory"
+          fi
+          
+          echo ""
+          echo "=== This will show exactly what's missing ==="
+
   udm-build-tools:
     needs: [udm-prepare-buildroot]
     runs-on: ubuntu-24.04
