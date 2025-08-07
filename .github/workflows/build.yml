@@ -1599,91 +1599,94 @@ jobs:
           # Create a patch for buildroot's M4 c-stack.c file
           mkdir -p package/m4
           
-          # Create the SIGSTKSZ patch for buildroot's M4
-          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'PATCH_EOF'
---- a/lib/c-stack.c.orig	2024-01-01 00:00:00.000000000 +0000
-+++ b/lib/c-stack.c	2024-01-01 00:00:00.000000000 +0000
-@@ -50,7 +50,17 @@
- #if ! HAVE_STACK_T && ! defined stack_t
- typedef struct sigaltstack stack_t;
- #endif
--#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
-+
-+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
-+#ifndef SIGSTKSZ_CONST
-+# ifdef SIGSTKSZ
-+#  if __builtin_constant_p(SIGSTKSZ)
-+#   define SIGSTKSZ_CONST SIGSTKSZ
-+#  else
-+#   define SIGSTKSZ_CONST 16384
-+#  endif
-+# else
-+#  define SIGSTKSZ_CONST 16384
-+# endif
-+#endif
-+
-+#elif HAVE_LIBSIGSEGV && SIGSTKSZ_CONST < 16384
- 
- # include <sigsegv.h>
- 
-@@ -134,7 +144,7 @@
-   /* Leave a small gap between the stack heuristic and the start
-      of the data we return to the application, but keep the stack
-      on a page boundary.  */
--  char const *stack_base = stack_heuristic - SIGSTKSZ - page_size;
-+  char const *stack_base = stack_heuristic - SIGSTKSZ_CONST - page_size;
-   char const *stack_base_aligned = 
-     (char const *) ((uintptr_t) stack_base & ~(page_size - 1));
-   size_t stack_size = stack_heuristic - stack_base_aligned;
-@@ -228,7 +238,7 @@
- # if HAVE_LIBSIGSEGV
- 
-   c_stack_action = action ? action : null_action;
--  return c_stack_action (SIGSEGV, SIGSTKSZ < 16384 ? 16384 : SIGSTKSZ);
-+  return c_stack_action (SIGSEGV, SIGSTKSZ_CONST < 16384 ? 16384 : SIGSTKSZ_CONST);
- 
- # else
- 
-PATCH_EOF
+          # Create the SIGSTKSZ patch using printf to avoid heredoc issues
+          printf '%s\n' \
+            '--- a/lib/c-stack.c.orig	2024-01-01 00:00:00.000000000 +0000' \
+            '+++ b/lib/c-stack.c	2024-01-01 00:00:00.000000000 +0000' \
+            '@@ -50,7 +50,17 @@' \
+            ' #if ! HAVE_STACK_T && ! defined stack_t' \
+            ' typedef struct sigaltstack stack_t;' \
+            ' #endif' \
+            '-#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384' \
+            '+' \
+            '+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */' \
+            '+#ifndef SIGSTKSZ_CONST' \
+            '+# ifdef SIGSTKSZ' \
+            '+#  if __builtin_constant_p(SIGSTKSZ)' \
+            '+#   define SIGSTKSZ_CONST SIGSTKSZ' \
+            '+#  else' \
+            '+#   define SIGSTKSZ_CONST 16384' \
+            '+#  endif' \
+            '+# else' \
+            '+#  define SIGSTKSZ_CONST 16384' \
+            '+# endif' \
+            '+#endif' \
+            '+' \
+            '+#elif HAVE_LIBSIGSEGV && SIGSTKSZ_CONST < 16384' \
+            ' ' \
+            ' # include <sigsegv.h>' \
+            ' ' \
+            '@@ -134,7 +144,7 @@' \
+            '   /* Leave a small gap between the stack heuristic and the start' \
+            '      of the data we return to the application, but keep the stack' \
+            '      on a page boundary.  */' \
+            '-  char const *stack_base = stack_heuristic - SIGSTKSZ - page_size;' \
+            '+  char const *stack_base = stack_heuristic - SIGSTKSZ_CONST - page_size;' \
+            '   char const *stack_base_aligned = ' \
+            '     (char const *) ((uintptr_t) stack_base & ~(page_size - 1));' \
+            '   size_t stack_size = stack_heuristic - stack_base_aligned;' \
+            '@@ -228,7 +238,7 @@' \
+            ' # if HAVE_LIBSIGSEGV' \
+            ' ' \
+            '   c_stack_action = action ? action : null_action;' \
+            '-  return c_stack_action (SIGSEGV, SIGSTKSZ < 16384 ? 16384 : SIGSTKSZ);' \
+            '+  return c_stack_action (SIGSEGV, SIGSTKSZ_CONST < 16384 ? 16384 : SIGSTKSZ_CONST);' \
+            ' ' \
+            ' # else' \
+            ' ' > package/m4/0002-fix-sigstksz-glibc-compatibility.patch
           
-          # Apply the patch to any existing M4 build directory if it exists
+          echo "✓ Created SIGSTKSZ patch file using printf"
+          
+          # Apply fix to existing M4 build directory if it exists
           if [ -d "output/build/host-m4-1.4.18" ]; then
-            echo "Applying patch to existing M4 build directory..."
+            echo "Applying SIGSTKSZ fix to existing M4 build directory..."
             cd output/build/host-m4-1.4.18
             
-            # Create backup
-            cp lib/c-stack.c lib/c-stack.c.backup 2>/dev/null || true
-            
-            # Apply simple SIGSTKSZ fix to c-stack.c
-            echo "Applying simple SIGSTKSZ fix to c-stack.c..."
-            sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
-              # If sed fails, try a more conservative approach
-              echo "Sed failed, trying conservative fix..."
-              echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
-              sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
-            }
+            # Create backup and apply simple sed fix
+            if [ -f "lib/c-stack.c" ]; then
+              cp lib/c-stack.c lib/c-stack.c.backup 2>/dev/null || true
+              
+              echo "Applying SIGSTKSZ compatibility fix..."
+              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
+                echo "Sed failed, trying conservative fix..."
+                echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
+                sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
+              }
+              
+              echo "✓ Applied SIGSTKSZ compatibility fix to existing M4 build"
+            fi
             
             cd ../../..
           fi
           
-          # Set build environment variables for M4 specifically
+          # Set M4-specific build environment variables using printf
           echo "=== Setting M4-specific build environment ==="
           
-          # Create an environment setup script
-          cat > setup-m4-env.sh << 'ENV_EOF'
-#!/bin/bash
-export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export CFLAGS="${CFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCFLAGS="${HOSTCFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCXXFLAGS="${HOSTCXXFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-exec "$@"
-ENV_EOF
+          printf '%s\n' \
+            '#!/bin/bash' \
+            'export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"' \
+            'export CFLAGS="${CFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"' \
+            'export HOSTCFLAGS="${HOSTCFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"' \
+            'export HOSTCXXFLAGS="${HOSTCXXFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"' \
+            'exec "$@"' > setup-m4-env.sh
+          
           chmod +x setup-m4-env.sh
           
-          echo "✓ Applied comprehensive M4 SIGSTKSZ fixes"
-          echo "  1. Added patch file for future M4 builds"
+          echo "✓ Applied comprehensive M4 SIGSTKSZ fixes using printf method"
+          echo "  1. Created patch file for future M4 builds"
           echo "  2. Fixed existing M4 build if present"
           echo "  3. Created environment wrapper script"
+          echo "  4. Avoided all heredoc syntax issues"
         
       - name: Debug buildroot state
         run: |
