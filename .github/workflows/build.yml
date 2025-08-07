@@ -1551,6 +1551,34 @@ ENV_EOF
           echo ""
           echo "=== This will show exactly what's missing ==="
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            m4 \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            kmod \
+            lzip \
+            ccache \
+            bison \
+            flex \
+            gettext \
+            libncurses5-dev \
+            rsync \
+            unzip \
+            bc \
+            wget \
+            cpio \
+            curl \
+            ca-certificates \
+            patch \
+            file \
+            python3
+
       - name: Debug and validate versions configuration
         run: |
           echo "=== DEBUGGING VERSIONS CONFIGURATION ==="
@@ -1643,34 +1671,6 @@ ENV_EOF
           echo "Base: $BASE"
           echo "Versions: $VERSIONS_CONTENT"
           echo "Prefix: $PREFIX_CONTENT"
-      
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            m4 \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            kmod \
-            lzip \
-            ccache \
-            bison \
-            flex \
-            gettext \
-            libncurses5-dev \
-            rsync \
-            unzip \
-            bc \
-            wget \
-            cpio \
-            curl \
-            ca-certificates \
-            patch \
-            file \
-            python3
             
       - name: Restore buildroot
         uses: actions/download-artifact@v4
