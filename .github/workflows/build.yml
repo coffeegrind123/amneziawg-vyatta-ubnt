@@ -1377,47 +1377,42 @@ jobs:
           # Create a proper source patch for M4 that fixes the SIGSTKSZ issue
           mkdir -p package/m4/patches
           
-          # Create the patch file with proper heredoc syntax
-          cat > package/m4/patches/0001-fix-sigstksz-glibc-compatibility.patch << 'EOF'
---- a/lib/c-stack.c.orig	2024-01-01 00:00:00.000000000 +0000
-+++ b/lib/c-stack.c	2024-01-01 00:00:00.000000000 +0000
-@@ -50,7 +50,13 @@
- #if ! HAVE_STACK_T && ! defined stack_t
- typedef struct sigaltstack stack_t;
- #endif
--#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
-+
-+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
-+#ifndef SIGSTKSZ
-+# define SIGSTKSZ 16384
-+#endif
-+
-+#elif HAVE_LIBSIGSEGV && (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))
- 
- # include <sigsegv.h>
- 
-EOF
+          # Create the patch file using printf to avoid YAML heredoc issues
+          {
+            echo '--- a/lib/c-stack.c.orig	2024-01-01 00:00:00.000000000 +0000'
+            echo '+++ b/lib/c-stack.c	2024-01-01 00:00:00.000000000 +0000'
+            echo '@@ -50,7 +50,13 @@'
+            echo ' #if ! HAVE_STACK_T && ! defined stack_t'
+            echo ' typedef struct sigaltstack stack_t;'
+            echo ' #endif'
+            echo '-#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384'
+            echo '+'
+            echo '+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */'
+            echo '+#ifndef SIGSTKSZ'
+            echo '+# define SIGSTKSZ 16384'
+            echo '+#endif'
+            echo '+'
+            echo '+#elif HAVE_LIBSIGSEGV && (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))'
+            echo ' '
+            echo ' # include <sigsegv.h>'
+            echo ' '
+          } > package/m4/patches/0001-fix-sigstksz-glibc-compatibility.patch
           
           # Update the M4 makefile to include our patch and set proper build flags
           if [ -f "package/m4/m4.mk" ]; then
             echo "Updating M4 makefile with SIGSTKSZ fixes..."
             
-            # Add our patch to the patch list if not already there
-            if ! grep -q "0001-fix-sigstksz-glibc-compatibility.patch" package/m4/m4.mk; then
-              echo "✓ Patch will be auto-applied from patches/ directory"
-            fi
-            
             # Set environment variables for the build
             if ! grep -q "M4_CONF_ENV.*SIGSTKSZ" package/m4/m4.mk; then
-              # Add CPPFLAGS with SIGSTKSZ definition
-              cat >> package/m4/m4.mk << 'MAKEFILE_EOF'
-
-# SIGSTKSZ compatibility fix for glibc 2.34+
-M4_CONF_ENV += CPPFLAGS="$(HOST_CPPFLAGS) -DSIGSTKSZ=16384"
-M4_CONF_ENV += CFLAGS="$(HOST_CFLAGS) -fcommon -Wno-error"
-M4_MAKE_ENV += CPPFLAGS="$(HOST_CPPFLAGS) -DSIGSTKSZ=16384"
-M4_MAKE_ENV += CFLAGS="$(HOST_CFLAGS) -fcommon -Wno-error"
-MAKEFILE_EOF
+              # Add CPPFLAGS with SIGSTKSZ definition using printf
+              {
+                echo ""
+                echo "# SIGSTKSZ compatibility fix for glibc 2.34+"
+                echo 'M4_CONF_ENV += CPPFLAGS="$$(HOST_CPPFLAGS) -DSIGSTKSZ=16384"'
+                echo 'M4_CONF_ENV += CFLAGS="$$(HOST_CFLAGS) -fcommon -Wno-error"'
+                echo 'M4_MAKE_ENV += CPPFLAGS="$$(HOST_CPPFLAGS) -DSIGSTKSZ=16384"'
+                echo 'M4_MAKE_ENV += CFLAGS="$$(HOST_CFLAGS) -fcommon -Wno-error"'
+              } >> package/m4/m4.mk
               echo "✓ Added SIGSTKSZ build environment variables"
             fi
           else
@@ -1425,14 +1420,14 @@ MAKEFILE_EOF
             ls -la package/m4/ || echo "M4 package directory not found"
           fi
           
-          # Alternative approach: Create a wrapper script that sets the environment
-          cat > package/m4/sigstksz-wrapper.sh << 'WRAPPER_EOF'
-#!/bin/bash
-# SIGSTKSZ compatibility wrapper for M4 build
-export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384"
-export CFLAGS="${CFLAGS} -fcommon -Wno-error"
-exec "$@"
-WRAPPER_EOF
+          # Alternative approach: Create a wrapper script using printf
+          {
+            echo '#!/bin/bash'
+            echo '# SIGSTKSZ compatibility wrapper for M4 build'
+            echo 'export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384"'
+            echo 'export CFLAGS="${CFLAGS} -fcommon -Wno-error"'
+            echo 'exec "$@"'
+          } > package/m4/sigstksz-wrapper.sh
           chmod +x package/m4/sigstksz-wrapper.sh
           
           echo "=== M4 SIGSTKSZ compatibility fixes applied ==="
