@@ -1376,7 +1376,9 @@ jobs:
           
           # Create a proper source patch for M4 that fixes the SIGSTKSZ issue
           mkdir -p package/m4/patches
-          cat > package/m4/patches/0001-fix-sigstksz-glibc-compatibility.patch << 'PATCH_EOF'
+          
+          # Create the patch file with proper heredoc syntax
+          cat > package/m4/patches/0001-fix-sigstksz-glibc-compatibility.patch << 'EOF'
 --- a/lib/c-stack.c.orig	2024-01-01 00:00:00.000000000 +0000
 +++ b/lib/c-stack.c	2024-01-01 00:00:00.000000000 +0000
 @@ -50,7 +50,13 @@
@@ -1394,7 +1396,7 @@ jobs:
  
  # include <sigsegv.h>
  
-PATCH_EOF
+EOF
           
           # Update the M4 makefile to include our patch and set proper build flags
           if [ -f "package/m4/m4.mk" ]; then
@@ -1402,19 +1404,12 @@ PATCH_EOF
             
             # Add our patch to the patch list if not already there
             if ! grep -q "0001-fix-sigstksz-glibc-compatibility.patch" package/m4/m4.mk; then
-              # Find the line with M4_SOURCE and add our patch after any existing patches
-              if grep -q "define M4_EXTRACT_CMDS" package/m4/m4.mk; then
-                # Buildroot 2017 style - patches are applied automatically from patches/ directory
-                echo "✓ Patch will be auto-applied from patches/ directory"
-              else
-                # Add patch manually if needed
-                sed -i '/^M4_VERSION/a M4_PATCH = 0001-fix-sigstksz-glibc-compatibility.patch' package/m4/m4.mk
-              fi
+              echo "✓ Patch will be auto-applied from patches/ directory"
             fi
             
             # Set environment variables for the build
             if ! grep -q "M4_CONF_ENV.*SIGSTKSZ" package/m4/m4.mk; then
-              # Method 1: Add CPPFLAGS with SIGSTKSZ definition
+              # Add CPPFLAGS with SIGSTKSZ definition
               cat >> package/m4/m4.mk << 'MAKEFILE_EOF'
 
 # SIGSTKSZ compatibility fix for glibc 2.34+
@@ -1443,7 +1438,7 @@ WRAPPER_EOF
           echo "=== M4 SIGSTKSZ compatibility fixes applied ==="
           echo "Applied fixes:"
           echo "  1. Source patch for c-stack.c"
-          echo "  2. Build environment variables"
+          echo "  2. Build environment variables"  
           echo "  3. Wrapper script as fallback"
           
       - name: Initialize buildroot
