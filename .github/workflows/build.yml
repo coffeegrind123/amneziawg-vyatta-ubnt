@@ -1550,6 +1550,99 @@ ENV_EOF
           
           echo ""
           echo "=== This will show exactly what's missing ==="
+
+      - name: Debug and validate versions configuration
+        run: |
+          echo "=== DEBUGGING VERSIONS CONFIGURATION ==="
+          
+          BASE="${{ matrix.base }}"
+          echo "Building for base: $BASE"
+          
+          # Check if the base directory exists
+          if [ ! -d "unifios/bases/$BASE" ]; then
+            echo "ERROR: Base directory 'unifios/bases/$BASE' does not exist!"
+            echo "Available bases:"
+            ls -la unifios/bases/ || echo "No bases directory found"
+            exit 1
+          fi
+          
+          # Check versions.txt file
+          VERSIONS_FILE="unifios/bases/$BASE/versions.txt"
+          echo "Checking versions file: $VERSIONS_FILE"
+          
+          if [ ! -f "$VERSIONS_FILE" ]; then
+            echo "ERROR: versions.txt file does not exist at $VERSIONS_FILE"
+            echo "Files in base directory:"
+            ls -la "unifios/bases/$BASE/"
+            exit 1
+          fi
+          
+          # Read and validate versions
+          echo "=== VERSIONS FILE CONTENT ==="
+          echo "File size: $(stat -c%s "$VERSIONS_FILE") bytes"
+          echo "File content (raw):"
+          od -c "$VERSIONS_FILE" || echo "Could not read file with od"
+          echo "File content (cat):"
+          cat "$VERSIONS_FILE" || echo "Could not read file with cat"
+          echo "=== END VERSIONS FILE CONTENT ==="
+          
+          # Read versions and validate
+          VERSIONS_CONTENT=$(cat "$VERSIONS_FILE" 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "Processed versions content: '$VERSIONS_CONTENT'"
+          echo "Length: ${#VERSIONS_CONTENT}"
+          
+          if [ -z "$VERSIONS_CONTENT" ]; then
+            echo "ERROR: versions.txt file is empty or contains only whitespace"
+            echo "This will cause the build to fail with empty version strings"
+            
+            # Provide default versions based on the base name
+            case "$BASE" in
+              udm-1.9.0-10)
+                DEFAULT_VERSIONS="1.9.0-10"
+                ;;
+              udm-1.10.0-8)
+                DEFAULT_VERSIONS="1.10.0-8"
+                ;;
+              udm-1.10.0-12)
+                DEFAULT_VERSIONS="1.10.0-12"
+                ;;
+              udm-se-2.2.4)
+                DEFAULT_VERSIONS="2.2.4"
+                ;;
+              udr-2.2.12)
+                DEFAULT_VERSIONS="2.2.12"
+                ;;
+              *)
+                DEFAULT_VERSIONS="unknown"
+                ;;
+            esac
+            
+            echo "Suggested default version for $BASE: $DEFAULT_VERSIONS"
+            echo "You need to add this to $VERSIONS_FILE"
+            exit 1
+          fi
+          
+          # Check prefix file
+          PREFIX_FILE="unifios/bases/$BASE/prefix"
+          echo "=== CHECKING PREFIX FILE ==="
+          
+          if [ ! -f "$PREFIX_FILE" ]; then
+            echo "ERROR: prefix file does not exist at $PREFIX_FILE"
+            exit 1
+          fi
+          
+          PREFIX_CONTENT=$(cat "$PREFIX_FILE" 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "Prefix content: '$PREFIX_CONTENT'"
+          
+          if [ -z "$PREFIX_CONTENT" ]; then
+            echo "ERROR: prefix file is empty"
+            exit 1
+          fi
+          
+          echo "=== CONFIGURATION VALIDATION COMPLETE ==="
+          echo "Base: $BASE"
+          echo "Versions: $VERSIONS_CONTENT"
+          echo "Prefix: $PREFIX_CONTENT"
       
       - name: Install system dependencies
         run: |
