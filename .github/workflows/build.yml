@@ -680,78 +680,78 @@ jobs:
           
           # Create a Python script to safely fix the netlink.c preprocessor issues
           cat > fix_netlink.py << 'PYTHON_SCRIPT_END'
-          #!/usr/bin/env python3
-          import re
-          import sys
-          
-          def fix_netlink_file(filename):
-              """Fix preprocessor issues in netlink.c"""
-              print(f"Processing {filename}...")
-              
-              with open(filename, 'r') as f:
-                  content = f.read()
-              
-              lines = content.splitlines()
-              fixed_lines = []
-              
-              # Track conditional compilation state
-              if_stack = []
-              in_genl_family = False
-              
-              i = 0
-              while i < len(lines):
-                  line = lines[i].rstrip()
-                  
-                  # Check for orphaned #else directives
-                  if line.strip() == '#else':
-                      # Look for context to determine if this #else is orphaned
-                      if not if_stack:
-                          print(f"Found orphaned #else at line {i+1}, commenting it out")
-                          fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
-                          i += 1
-                          continue
-                  
-                  # Track #if/#endif pairs
-                  if line.strip().startswith('#if'):
-                      if_stack.append(i)
-                  elif line.strip().startswith('#endif'):
-                      if if_stack:
-                          if_stack.pop()
-                  elif line.strip().startswith('#else'):
-                      if not if_stack:
-                          # This is an orphaned #else
-                          print(f"Orphaned #else found at line {i+1}")
-                          fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
-                          i += 1
-                          continue
-                  
-                  # Handle genl_family structure modifications more carefully
-                  if '.mcgrps = wg_genl_mcgrps,' in line:
-                      in_genl_family = True
-                      # Add proper conditional compilation
-                      fixed_lines.append('#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)')
-                      fixed_lines.append(line)
-                  elif in_genl_family and '.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)' in line:
-                      fixed_lines.append(line)
-                      fixed_lines.append('#else')
-                      fixed_lines.append('\t/* .mcgrps and .n_mcgrps not available in older kernels */')
-                      fixed_lines.append('#endif')
-                      in_genl_family = False
-                  else:
-                      fixed_lines.append(line)
-                  
-                  i += 1
-              
-              # Write the fixed content
-              with open(filename, 'w') as f:
-                  f.write('\n'.join(fixed_lines) + '\n')
-              
-              print(f"✓ Fixed {filename}")
-              return True
-          
-          if __name__ == "__main__":
-              fix_netlink_file("netlink.c")
-          PYTHON_SCRIPT_END
+#!/usr/bin/env python3
+import re
+import sys
+
+def fix_netlink_file(filename):
+    """Fix preprocessor issues in netlink.c"""
+    print(f"Processing {filename}...")
+    
+    with open(filename, 'r') as f:
+        content = f.read()
+    
+    lines = content.splitlines()
+    fixed_lines = []
+    
+    # Track conditional compilation state
+    if_stack = []
+    in_genl_family = False
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].rstrip()
+        
+        # Check for orphaned #else directives
+        if line.strip() == '#else':
+            # Look for context to determine if this #else is orphaned
+            if not if_stack:
+                print(f"Found orphaned #else at line {i+1}, commenting it out")
+                fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
+                i += 1
+                continue
+        
+        # Track #if/#endif pairs
+        if line.strip().startswith('#if'):
+            if_stack.append(i)
+        elif line.strip().startswith('#endif'):
+            if if_stack:
+                if_stack.pop()
+        elif line.strip().startswith('#else'):
+            if not if_stack:
+                # This is an orphaned #else
+                print(f"Orphaned #else found at line {i+1}")
+                fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
+                i += 1
+                continue
+        
+        # Handle genl_family structure modifications more carefully
+        if '.mcgrps = wg_genl_mcgrps,' in line:
+            in_genl_family = True
+            # Add proper conditional compilation
+            fixed_lines.append('#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)')
+            fixed_lines.append(line)
+        elif in_genl_family and '.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)' in line:
+            fixed_lines.append(line)
+            fixed_lines.append('#else')
+            fixed_lines.append('\t/* .mcgrps and .n_mcgrps not available in older kernels */')
+            fixed_lines.append('#endif')
+            in_genl_family = False
+        else:
+            fixed_lines.append(line)
+        
+        i += 1
+    
+    # Write the fixed content
+    with open(filename, 'w') as f:
+        f.write('\n'.join(fixed_lines) + '\n')
+    
+    print(f"✓ Fixed {filename}")
+    return True
+
+if __name__ == "__main__":
+    fix_netlink_file("netlink.c")
+PYTHON_SCRIPT_END
           
           # Run the Python fix script
           python3 fix_netlink.py
@@ -763,18 +763,18 @@ jobs:
           if grep -q "ret = genl_register_family(&genl_family);" netlink.c; then
               # Create a proper patch for registration
               cat > registration_fix.patch << 'PATCH_END'
-          	ret = genl_register_family(&genl_family);
-          #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
-          	if (ret < 0)
-          		return ret;
-          	/* Register multicast groups separately for older kernels */
-          	ret = genl_register_mc_group(&genl_family, &wg_genl_mcgrps[0]);
-          	if (ret < 0) {
-          		genl_unregister_family(&genl_family);
-          		return ret;
-          	}
-          #endif
-          PATCH_END
+	ret = genl_register_family(&genl_family);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
+	if (ret < 0)
+		return ret;
+	/* Register multicast groups separately for older kernels */
+	ret = genl_register_mc_group(&genl_family, &wg_genl_mcgrps[0]);
+	if (ret < 0) {
+		genl_unregister_family(&genl_family);
+		return ret;
+	}
+#endif
+PATCH_END
               
               # Apply the patch after the registration line
               sed -i '/ret = genl_register_family(&genl_family);/r registration_fix.patch' netlink.c
@@ -786,11 +786,11 @@ jobs:
           if grep -q "genlmsg_multicast_netns(&genl_family" netlink.c; then
               # Replace the multicast call with conditional version
               sed -i '/ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);/c\
-          #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)\
-          	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);\
-          #else\
-          	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);\
-          #endif' netlink.c
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)\
+	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);\
+#else\
+	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);\
+#endif' netlink.c
               echo "✓ Fixed multicast function"
           fi
           
@@ -799,47 +799,47 @@ jobs:
           
           # Count #if, #else, #endif to ensure they're balanced
           python3 << 'VALIDATION_SCRIPT'
-          with open('netlink.c', 'r') as f:
-              content = f.read()
-          
-          lines = content.splitlines()
-          if_count = 0
-          else_count = 0
-          endif_count = 0
-          orphaned_else = []
-          
-          stack = []
-          for i, line in enumerate(lines):
-              stripped = line.strip()
-              if stripped.startswith('#if'):
-                  if_count += 1
-                  stack.append(('if', i+1))
-              elif stripped == '#else':
-                  else_count += 1
-                  if not stack or stack[-1][0] != 'if':
-                      orphaned_else.append(i+1)
-                  else:
-                      stack[-1] = ('else', i+1)
-              elif stripped.startswith('#endif'):
-                  endif_count += 1
-                  if stack:
-                      stack.pop()
-          
-          print(f"Preprocessor directive counts:")
-          print(f"  #if variants: {if_count}")
-          print(f"  #else: {else_count}")
-          print(f"  #endif: {endif_count}")
-          
-          if orphaned_else:
-              print(f"⚠ Found orphaned #else directives at lines: {orphaned_else}")
-              sys.exit(1)
-          
-          if stack:
-              print(f"⚠ Unmatched directives: {stack}")
-              sys.exit(1)
-          
-          print("✓ Preprocessor directives are properly balanced")
-          VALIDATION_SCRIPT
+with open('netlink.c', 'r') as f:
+    content = f.read()
+
+lines = content.splitlines()
+if_count = 0
+else_count = 0
+endif_count = 0
+orphaned_else = []
+
+stack = []
+for i, line in enumerate(lines):
+    stripped = line.strip()
+    if stripped.startswith('#if'):
+        if_count += 1
+        stack.append(('if', i+1))
+    elif stripped == '#else':
+        else_count += 1
+        if not stack or stack[-1][0] != 'if':
+            orphaned_else.append(i+1)
+        else:
+            stack[-1] = ('else', i+1)
+    elif stripped.startswith('#endif'):
+        endif_count += 1
+        if stack:
+            stack.pop()
+
+print(f"Preprocessor directive counts:")
+print(f"  #if variants: {if_count}")
+print(f"  #else: {else_count}")
+print(f"  #endif: {endif_count}")
+
+if orphaned_else:
+    print(f"⚠ Found orphaned #else directives at lines: {orphaned_else}")
+    sys.exit(1)
+
+if stack:
+    print(f"⚠ Unmatched directives: {stack}")
+    sys.exit(1)
+
+print("✓ Preprocessor directives are properly balanced")
+VALIDATION_SCRIPT
           
           # 6. Adjust compiler flags to suppress warnings that become errors
           echo "Adjusting compiler flags..."
@@ -1369,100 +1369,48 @@ jobs:
         run: |
           cd buildroot-2017.11.1
           
-          echo "=== Patching Buildroot's M4 for SIGSTKSZ compatibility ==="
+          echo "=== Applying M4 SIGSTKSZ compatibility fixes ==="
           
-          # Create a patch for buildroot's M4 c-stack.c file
+          # Method 1: Simple and reliable approach - use sed to modify c-stack.c
           mkdir -p package/m4
           
-          # Create a PROPER unified diff patch file using cat with EOF delimiter
-          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'EOF'
---- a/lib/c-stack.c.orig
+          # Create a post-extract hook that will fix the SIGSTKSZ issue
+          cat > package/m4/m4-fix-sigstksz.sh << 'EOF'
+#!/bin/bash
+# Fix SIGSTKSZ compatibility for newer glibc
+if [ -f "$1/lib/c-stack.c" ]; then
+    echo "Applying SIGSTKSZ fix to $1/lib/c-stack.c"
+    # Define SIGSTKSZ as 16384 if it's not a compile-time constant
+    sed -i '1i#ifdef SIGSTKSZ' "$1/lib/c-stack.c"
+    sed -i '2i# if !__builtin_constant_p(SIGSTKSZ)' "$1/lib/c-stack.c" 
+    sed -i '3i#  undef SIGSTKSZ' "$1/lib/c-stack.c"
+    sed -i '4i#  define SIGSTKSZ 16384' "$1/lib/c-stack.c"
+    sed -i '5i# endif' "$1/lib/c-stack.c"
+    sed -i '6i#endif' "$1/lib/c-stack.c"
+    echo "SIGSTKSZ fix applied successfully"
+fi
+EOF
+          chmod +x package/m4/m4-fix-sigstksz.sh
+          
+          # Create a simple patch that will use sed instead of complex patch format
+          cat > package/m4/0002-fix-sigstksz-compatibility.patch << 'EOF'
+--- a/lib/c-stack.c
 +++ b/lib/c-stack.c
-@@ -50,7 +50,17 @@
- #if ! HAVE_STACK_T && ! defined stack_t
- typedef struct sigaltstack stack_t;
- #endif
--#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
-+
-+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
-+#ifndef SIGSTKSZ_CONST
-+# ifdef SIGSTKSZ
-+#  if __builtin_constant_p(SIGSTKSZ)
-+#   define SIGSTKSZ_CONST SIGSTKSZ
-+#  else
-+#   define SIGSTKSZ_CONST 16384
-+#  endif
-+# else
-+#  define SIGSTKSZ_CONST 16384
-+# endif
-+#endif
-+
-+#elif HAVE_LIBSIGSEGV && SIGSTKSZ_CONST < 16384
- 
- # include <sigsegv.h>
- 
-@@ -134,7 +144,7 @@
+@@ -132,7 +132,11 @@
    /* Leave a small gap between the stack heuristic and the start
       of the data we return to the application, but keep the stack
       on a page boundary.  */
--  char const *stack_base = stack_heuristic - SIGSTKSZ - page_size;
-+  char const *stack_base = stack_heuristic - SIGSTKSZ_CONST - page_size;
++#ifdef SIGSTKSZ
+   char const *stack_base = stack_heuristic - SIGSTKSZ - page_size;
++#else
++  char const *stack_base = stack_heuristic - 16384 - page_size;
++#endif
    char const *stack_base_aligned = 
      (char const *) ((uintptr_t) stack_base & ~(page_size - 1));
    size_t stack_size = stack_heuristic - stack_base_aligned;
-@@ -228,7 +238,7 @@
- # if HAVE_LIBSIGSEGV
- 
-   c_stack_action = action ? action : null_action;
--  return c_stack_action (SIGSEGV, SIGSTKSZ < 16384 ? 16384 : SIGSTKSZ);
-+  return c_stack_action (SIGSEGV, SIGSTKSZ_CONST < 16384 ? 16384 : SIGSTKSZ_CONST);
- 
- # else
- 
 EOF
           
-          echo "✓ Created proper unified diff patch for M4 SIGSTKSZ compatibility"
-          
-          # Apply fix to existing M4 build directory if it exists
-          if [ -d "output/build/host-m4-1.4.18" ]; then
-            echo "Applying SIGSTKSZ fix to existing M4 build directory..."
-            cd output/build/host-m4-1.4.18
-            
-            # Create backup and apply simple sed fix
-            if [ -f "lib/c-stack.c" ]; then
-              cp lib/c-stack.c lib/c-stack.c.backup 2>/dev/null || true
-              
-              echo "Applying SIGSTKSZ compatibility fix..."
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
-                echo "Sed failed, trying conservative fix..."
-                echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
-                sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
-              }
-              
-              echo "✓ Applied SIGSTKSZ compatibility fix to existing M4 build"
-            fi
-            
-            cd ../../..
-          fi
-          
-          # Set M4-specific build environment variables
-          echo "=== Setting M4-specific build environment ==="
-          
-          cat > setup-m4-env.sh << 'ENV_EOF'
-#!/bin/bash
-export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export CFLAGS="${CFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCFLAGS="${HOSTCFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCXXFLAGS="${HOSTCXXFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-exec "$@"
-ENV_EOF
-          
-          chmod +x setup-m4-env.sh
-          
-          echo "✓ Applied M4 SIGSTKSZ fixes with proper patch format"
-          echo "  1. Created valid unified diff patch"
-          echo "  2. Fixed existing M4 build if present"
-          echo "  3. Created environment wrapper script"
+          echo "✓ Created M4 SIGSTKSZ compatibility fixes"
           
       - name: Initialize buildroot
         run: |
@@ -1684,100 +1632,21 @@ ENV_EOF
         run: |
           cd buildroot-2017.11.1
           
-          echo "=== Patching Buildroot's M4 for SIGSTKSZ compatibility ==="
+          echo "=== Applying simple M4 SIGSTKSZ compatibility fix ==="
           
-          # Create a patch for buildroot's M4 c-stack.c file
+          # Use a much simpler approach - modify the package Makefile to add environment variables
+          # that will fix the SIGSTKSZ issue at compile time
           mkdir -p package/m4
           
-          # Create a PROPER unified diff patch file using cat with EOF delimiter
-          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'EOF'
---- a/lib/c-stack.c.orig
-+++ b/lib/c-stack.c
-@@ -50,7 +50,17 @@
- #if ! HAVE_STACK_T && ! defined stack_t
- typedef struct sigaltstack stack_t;
- #endif
--#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
-+
-+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
-+#ifndef SIGSTKSZ_CONST
-+# ifdef SIGSTKSZ
-+#  if __builtin_constant_p(SIGSTKSZ)
-+#   define SIGSTKSZ_CONST SIGSTKSZ
-+#  else
-+#   define SIGSTKSZ_CONST 16384
-+#  endif
-+# else
-+#  define SIGSTKSZ_CONST 16384
-+# endif
-+#endif
-+
-+#elif HAVE_LIBSIGSEGV && SIGSTKSZ_CONST < 16384
- 
- # include <sigsegv.h>
- 
-@@ -134,7 +144,7 @@
-   /* Leave a small gap between the stack heuristic and the start
-      of the data we return to the application, but keep the stack
-      on a page boundary.  */
--  char const *stack_base = stack_heuristic - SIGSTKSZ - page_size;
-+  char const *stack_base = stack_heuristic - SIGSTKSZ_CONST - page_size;
-   char const *stack_base_aligned = 
-     (char const *) ((uintptr_t) stack_base & ~(page_size - 1));
-   size_t stack_size = stack_heuristic - stack_base_aligned;
-@@ -228,7 +238,7 @@
- # if HAVE_LIBSIGSEGV
- 
-   c_stack_action = action ? action : null_action;
--  return c_stack_action (SIGSEGV, SIGSTKSZ < 16384 ? 16384 : SIGSTKSZ);
-+  return c_stack_action (SIGSEGV, SIGSTKSZ_CONST < 16384 ? 16384 : SIGSTKSZ_CONST);
- 
- # else
- 
-EOF
+          # Set build environment variables to handle SIGSTKSZ
+          export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384"
+          export CFLAGS="${CFLAGS} -DSIGSTKSZ=16384"
+          export HOSTCFLAGS="${HOSTCFLAGS} -DSIGSTKSZ=16384 -fcommon -Wno-error"
+          export HOSTCXXFLAGS="${HOSTCXXFLAGS} -DSIGSTKSZ=16384 -fcommon -Wno-error"
           
-          echo "✓ Created proper unified diff patch for M4 SIGSTKSZ compatibility"
-          
-          # Apply fix to existing M4 build directory if it exists
-          if [ -d "output/build/host-m4-1.4.18" ]; then
-            echo "Applying SIGSTKSZ fix to existing M4 build directory..."
-            cd output/build/host-m4-1.4.18
-            
-            # Create backup and apply simple sed fix
-            if [ -f "lib/c-stack.c" ]; then
-              cp lib/c-stack.c lib/c-stack.c.backup 2>/dev/null || true
-              
-              echo "Applying SIGSTKSZ compatibility fix..."
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
-                echo "Sed failed, trying conservative fix..."
-                echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
-                sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
-              }
-              
-              echo "✓ Applied SIGSTKSZ compatibility fix to existing M4 build"
-            fi
-            
-            cd ../../..
-          fi
-          
-          # Set M4-specific build environment variables
-          echo "=== Setting M4-specific build environment ==="
-          
-          cat > setup-m4-env.sh << 'ENV_EOF'
-#!/bin/bash
-export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export CFLAGS="${CFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCFLAGS="${HOSTCFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCXXFLAGS="${HOSTCXXFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-exec "$@"
-ENV_EOF
-          
-          chmod +x setup-m4-env.sh
-          
-          echo "✓ Applied M4 SIGSTKSZ fixes with proper patch format"
-          echo "  1. Created valid unified diff patch"
-          echo "  2. Fixed existing M4 build if present"
-          echo "  3. Created environment wrapper script"
+          echo "✓ Set M4 compatibility environment variables"
+          echo "  HOSTCFLAGS: $HOSTCFLAGS"
+          echo "  HOSTCXXFLAGS: $HOSTCXXFLAGS"
         
       - name: Debug buildroot state
         run: |
@@ -1867,9 +1736,9 @@ ENV_EOF
           
           cd buildroot-2017.11.1
           
-          # Set host compiler flags for DTC compatibility
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          # Set host compiler flags for DTC and M4 compatibility
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
           
           # Calculate optimal parallel jobs
           NPROC=$(nproc)
@@ -1898,7 +1767,7 @@ ENV_EOF
             echo "Setting kernel version to: $ver"
             sed -i -e '/CONFIG_LOCALVERSION=/s/.*/CONFIG_LOCALVERSION="'$ver'"/' kernel-config
             
-            # Build with detailed error reporting and DTC fixes
+            # Build with detailed error reporting and compatibility fixes
             echo "Starting build for version $ver..."
             if ! make wireguard-linux-compat-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"; then
               echo "=== BUILD FAILED for version $ver ==="
@@ -2052,9 +1921,9 @@ ENV_EOF
       - name: Build WireGuard tools
         run: |
           cd buildroot-2017.11.1
-          # Set host compiler flags for DTC compatibility
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          # Set host compiler flags for compatibility
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
           
           # Calculate optimal parallel jobs
           NPROC=$(nproc)
@@ -2066,8 +1935,8 @@ ENV_EOF
       - name: Build bash
         run: |
           cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
           NPROC=$(nproc)
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
@@ -2076,8 +1945,8 @@ ENV_EOF
       - name: Build resolvconf
         run: |
           cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
           NPROC=$(nproc)
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
@@ -2086,8 +1955,8 @@ ENV_EOF
       - name: Build qrencode
         run: |
           cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
           NPROC=$(nproc)
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
