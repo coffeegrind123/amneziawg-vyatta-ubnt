@@ -1615,7 +1615,7 @@ jobs:
  
 PATCH_EOF
           
-          # Also apply the patch to any existing M4 build directory if it exists
+          # Apply the patch to any existing M4 build directory if it exists
           if [ -d "output/build/host-m4-1.4.18" ]; then
             echo "Applying patch to existing M4 build directory..."
             cd output/build/host-m4-1.4.18
@@ -1623,84 +1623,19 @@ PATCH_EOF
             # Create backup
             cp lib/c-stack.c lib/c-stack.c.backup 2>/dev/null || true
             
-            # Apply the fix directly to the source
-            cat > lib/c-stack.c.tmp << 'CSTACK_EOF'
-#include <config.h>
-
-#include "c-stack.h"
-
-#if DEBUG
-# include <stdio.h>
-#endif
-#include <errno.h>
-#ifndef ENOTSUP
-# define ENOTSUP EINVAL
-#endif
-#include <signal.h>
-#if ! HAVE_STACK_T && ! defined stack_t
-typedef struct sigaltstack stack_t;
-#endif
-
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#if HAVE_SYS_RESOURCE_H
-# include <sys/resource.h>
-#endif
-#if HAVE_UCONTEXT_H
-# include <ucontext.h>
-#endif
-
-#include <unistd.h>
-
-#if defined SA_ONSTACK && defined SA_SIGINFO
-# define SIGINFO_WORKS 1
-#else
-# define SIGINFO_WORKS 0
-#endif
-
-#if HAVE_LIBSIGSEGV
-
-# include <sigsegv.h>
-
-#endif
-
-/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
-#ifndef SIGSTKSZ_CONST
-# ifdef SIGSTKSZ
-#  if __builtin_constant_p(SIGSTKSZ)
-#   define SIGSTKSZ_CONST SIGSTKSZ
-#  else
-#   define SIGSTKSZ_CONST 16384
-#  endif
-# else
-#  define SIGSTKSZ_CONST 16384
-# endif
-#endif
-
-/* Storage for the alternate signal stack.  */
-static char *alternate_signal_stack;
-
-/* The rest of the content depends on whether we're using libsigsegv */
-#if HAVE_LIBSIGSEGV && SIGSTKSZ_CONST < 16384
-CSTACK_EOF
-            
-            # For safety, just set the SIGSTKSZ_CONST define if the original file exists
-            if [ -f "lib/c-stack.c.backup" ]; then
-              # Use a simple sed replacement approach instead
-              echo "Applying simple SIGSTKSZ fix to c-stack.c..."
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
-                # If sed fails, try a more conservative approach
-                echo "Sed failed, trying conservative fix..."
-                echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
-                sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
-              }
-            fi
+            # Apply simple SIGSTKSZ fix to c-stack.c
+            echo "Applying simple SIGSTKSZ fix to c-stack.c..."
+            sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
+              # If sed fails, try a more conservative approach
+              echo "Sed failed, trying conservative fix..."
+              echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
+              sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
+            }
             
             cd ../../..
           fi
           
-          # Also set build environment variables for M4 specifically
+          # Set build environment variables for M4 specifically
           echo "=== Setting M4-specific build environment ==="
           
           # Create an environment setup script
