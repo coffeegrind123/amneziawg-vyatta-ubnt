@@ -2031,56 +2031,36 @@ jobs:
         run: |
           cd buildroot-2017.11.1
           
-          # Set comprehensive host compiler flags
-          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
-          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
-          export CFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
-          export CXXFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
+          # Enhanced compatibility flags for modern systems
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE -Wno-implicit-function-declaration -Wno-format-security"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE -Wno-implicit-function-declaration"
+          export CFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE -O1"  # Reduce optimization level
+          export CXXFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE -O1"
           export CPPFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
           
           # Additional compatibility environment
           export FORCE_UNSAFE_CONFIGURE=1
           export LC_ALL=C
-          export ac_cv_func_malloc_0_nonnull=yes
-          export ac_cv_func_realloc_0_nonnull=yes
+          export MAKEFLAGS="--no-builtin-rules --no-builtin-variables"
+          export SHELL=/bin/bash
           
-          echo "=== Build environment ==="
-          echo "HOSTCFLAGS: $HOSTCFLAGS"
-          echo "CFLAGS: $CFLAGS"
+          # Force older autotools behavior
+          export AUTOM4TE_PERLLIBDIR=/usr/share/autotools-dev
+          export M4=/usr/bin/m4
           
-          # Calculate optimal parallel jobs
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
+          # Memory and process limits
+          ulimit -v 4194304  # 4GB virtual memory limit
+          ulimit -s 8192     # 8MB stack limit
           
-          echo "Using $PARALLEL_JOBS parallel jobs"
+          # Use system tools where possible to avoid building problematic packages
+          mkdir -p output/host/bin
+          ln -sf /usr/bin/m4 output/host/bin/m4 2>/dev/null || true
+          ln -sf /usr/bin/bison output/host/bin/bison 2>/dev/null || true
+          ln -sf /usr/bin/flex output/host/bin/flex 2>/dev/null || true
           
-          # Build with error recovery
-          echo "=== Building WireGuard tools ==="
-          if ! make wireguard-tools-rebuild -j$PARALLEL_JOBS V=1; then
-            echo "⚠ Parallel build failed, retrying single-threaded..."
-            if ! make wireguard-tools-rebuild -j1 V=1; then
-              echo "❌ WireGuard tools build failed completely"
-              
-              # Try to build just the essential tools manually
-              echo "Attempting manual tool build..."
-              WG_TOOLS_DIR=$(find output/build -name "*wireguard-tools*" -type d | head -1)
-              if [ -n "$WG_TOOLS_DIR" ] && [ -d "$WG_TOOLS_DIR" ]; then
-                cd "$WG_TOOLS_DIR/src"
-                if make CC="$(which gcc)" LDFLAGS="-static" -j1; then
-                  echo "✓ Manual WireGuard tools build successful"
-                  mkdir -p ../../../target/usr/bin
-                  cp wg ../../../target/usr/bin/
-                  cd ../../..
-                else
-                  echo "❌ Manual build also failed"
-                  exit 1
-                fi
-              else
-                exit 1
-              fi
-            fi
-          fi
+          # Single-threaded build to avoid race conditions
+          echo "Building with single thread for stability..."
+          make wireguard-tools-rebuild -j1 V=1 2>&1 | tee build.log
           
           echo "=== Building other tools ==="
           
