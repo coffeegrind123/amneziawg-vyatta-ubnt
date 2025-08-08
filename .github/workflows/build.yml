@@ -1252,37 +1252,12 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
-
-      - name: Debug repository structure for UnifiOS jobs
-        run: |
-          echo "=== REPOSITORY STRUCTURE CHECK ==="
-          echo "Current directory: $(pwd)"
-          echo "Repository root files:"
-          ls -la
-          echo ""
-          echo "Does unifios directory exist?"
-          ls -la unifios/ || echo "❌ unifios directory MISSING!"
-          echo ""
-          echo "Does bases directory exist?"  
-          ls -la unifios/bases/ || echo "❌ bases directory MISSING!"
-          echo ""
-          echo "Available bases:"
-          ls -la unifios/bases/ | grep -E "(udm|udr)" || echo "❌ No UnifiOS bases found!"
-          echo ""
-          echo "Checking required files for udm-1.9.0-10:"
-          for file in versions.txt prefix buildroot-config.txt kernel-config; do
-            if [ -f "unifios/bases/udm-1.9.0-10/$file" ]; then
-              echo "✅ $file exists"
-            else
-              echo "❌ $file MISSING!"
-            fi
-          done
       
       - name: Cache buildroot
         uses: actions/cache@v4
         with:
           path: buildroot-2017.11.1
-          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v5
+          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v8
           
       - name: Install system dependencies
         run: |
@@ -1358,111 +1333,65 @@ jobs:
           
       - name: Apply patches
         run: |
+          echo "=== APPLYING BUILDROOT PATCHES ==="
+          
+          # Apply basic patches first
           patch -p0 <unifios/patches/wireguard-packages.patch
           patch -p0 <unifios/patches/openresolv-package.patch
           patch -d buildroot-2017.11.1 -p1 <unifios/patches/add-kernel-4-19.patch
-          cp unifios/patches/0001-m4-glibc-change-work-around.patch buildroot-2017.11.1/package/m4
-          cp unifios/patches/0001-bison-glibc-change-work-around.patch buildroot-2017.11.1/package/bison
-          cp unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch buildroot-2017.11.1/package/gcc/6.4.0
           
-      - name: Fix Buildroot M4 SIGSTKSZ compatibility issue
-        run: |
+          # Find and copy version-specific patches
           cd buildroot-2017.11.1
           
-          echo "=== Patching Buildroot's M4 for SIGSTKSZ compatibility ==="
-          
-          # Create a patch for buildroot's M4 c-stack.c file
-          mkdir -p package/m4
-          
-          # Create a PROPER unified diff patch file using cat with EOF delimiter
-          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'EOF'
---- a/lib/c-stack.c.orig
-+++ b/lib/c-stack.c
-@@ -50,7 +50,17 @@
- #if ! HAVE_STACK_T && ! defined stack_t
- typedef struct sigaltstack stack_t;
- #endif
--#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
-+
-+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
-+#ifndef SIGSTKSZ_CONST
-+# ifdef SIGSTKSZ
-+#  if __builtin_constant_p(SIGSTKSZ)
-+#   define SIGSTKSZ_CONST SIGSTKSZ
-+#  else
-+#   define SIGSTKSZ_CONST 16384
-+#  endif
-+# else
-+#  define SIGSTKSZ_CONST 16384
-+# endif
-+#endif
-+
-+#elif HAVE_LIBSIGSEGV && SIGSTKSZ_CONST < 16384
- 
- # include <sigsegv.h>
- 
-@@ -134,7 +144,7 @@
-   /* Leave a small gap between the stack heuristic and the start
-      of the data we return to the application, but keep the stack
-      on a page boundary.  */
--  char const *stack_base = stack_heuristic - SIGSTKSZ - page_size;
-+  char const *stack_base = stack_heuristic - SIGSTKSZ_CONST - page_size;
-   char const *stack_base_aligned = 
-     (char const *) ((uintptr_t) stack_base & ~(page_size - 1));
-   size_t stack_size = stack_heuristic - stack_base_aligned;
-@@ -228,7 +238,7 @@
- # if HAVE_LIBSIGSEGV
- 
-   c_stack_action = action ? action : null_action;
--  return c_stack_action (SIGSEGV, SIGSTKSZ < 16384 ? 16384 : SIGSTKSZ);
-+  return c_stack_action (SIGSEGV, SIGSTKSZ_CONST < 16384 ? 16384 : SIGSTKSZ_CONST);
- 
- # else
- 
-EOF
-          
-          echo "✓ Created proper unified diff patch for M4 SIGSTKSZ compatibility"
-          
-          # Apply fix to existing M4 build directory if it exists
-          if [ -d "output/build/host-m4-1.4.18" ]; then
-            echo "Applying SIGSTKSZ fix to existing M4 build directory..."
-            cd output/build/host-m4-1.4.18
-            
-            # Create backup and apply simple sed fix
-            if [ -f "lib/c-stack.c" ]; then
-              cp lib/c-stack.c lib/c-stack.c.backup 2>/dev/null || true
-              
-              echo "Applying SIGSTKSZ compatibility fix..."
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
-                echo "Sed failed, trying conservative fix..."
-                echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
-                sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
-              }
-              
-              echo "✓ Applied SIGSTKSZ compatibility fix to existing M4 build"
-            fi
-            
-            cd ../../..
+          # Handle m4 patch
+          echo "Finding m4 version directory..."
+          M4_VERSION_DIR=$(find package/m4 -maxdepth 1 -type d -name "[0-9]*" | head -1)
+          if [ -n "$M4_VERSION_DIR" ]; then
+            echo "Found m4 version dir: $M4_VERSION_DIR"
+            cp ../unifios/patches/0001-m4-glibc-change-work-around.patch "$M4_VERSION_DIR/"
+            echo "✓ Applied m4 patch to $M4_VERSION_DIR"
+          else
+            echo "No m4 version directory found, copying to package/m4/"
+            mkdir -p package/m4/patches
+            cp ../unifios/patches/0001-m4-glibc-change-work-around.patch package/m4/patches/
+            echo "✓ Applied m4 patch to package/m4/patches/"
           fi
           
-          # Set M4-specific build environment variables
-          echo "=== Setting M4-specific build environment ==="
+          # Handle bison patch
+          echo "Finding bison version directory..."
+          BISON_VERSION_DIR=$(find package/bison -maxdepth 1 -type d -name "[0-9]*" | head -1)
+          if [ -n "$BISON_VERSION_DIR" ]; then
+            echo "Found bison version dir: $BISON_VERSION_DIR"
+            cp ../unifios/patches/0001-bison-glibc-change-work-around.patch "$BISON_VERSION_DIR/"
+            echo "✓ Applied bison patch to $BISON_VERSION_DIR"
+          else
+            echo "No bison version directory found, copying to package/bison/"
+            mkdir -p package/bison/patches
+            cp ../unifios/patches/0001-bison-glibc-change-work-around.patch package/bison/patches/
+            echo "✓ Applied bison patch to package/bison/patches/"
+          fi
           
-          cat > setup-m4-env.sh << 'ENV_EOF'
-#!/bin/bash
-export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export CFLAGS="${CFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCFLAGS="${HOSTCFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCXXFLAGS="${HOSTCXXFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-exec "$@"
-ENV_EOF
+          # Handle GCC patch
+          echo "Finding GCC version directory..."
+          GCC_VERSION_DIR=$(find package/gcc -maxdepth 1 -type d -name "6.4.0" | head -1)
+          if [ -n "$GCC_VERSION_DIR" ]; then
+            echo "Found GCC version dir: $GCC_VERSION_DIR"
+            cp ../unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch "$GCC_VERSION_DIR/"
+            echo "✓ Applied GCC patch to $GCC_VERSION_DIR"
+          else
+            echo "GCC 6.4.0 directory not found, checking for other versions..."
+            GCC_VERSION_DIR=$(find package/gcc -maxdepth 1 -type d -name "[0-9]*" | head -1)
+            if [ -n "$GCC_VERSION_DIR" ]; then
+              echo "Found alternate GCC version dir: $GCC_VERSION_DIR"
+              cp ../unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch "$GCC_VERSION_DIR/" || echo "Failed to copy GCC patch, continuing"
+            else
+              echo "No GCC version directory found, creating one"
+              mkdir -p package/gcc/6.4.0
+              cp ../unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch package/gcc/6.4.0/
+            fi
+          fi
           
-          chmod +x setup-m4-env.sh
-          
-          echo "✓ Applied M4 SIGSTKSZ fixes with proper patch format"
-          echo "  1. Created valid unified diff patch"
-          echo "  2. Fixed existing M4 build if present"
-          echo "  3. Created environment wrapper script"
+          echo "=== PATCH APPLICATION COMPLETED ==="
           
       - name: Initialize buildroot
         run: |
@@ -1515,42 +1444,6 @@ ENV_EOF
     steps:
       - uses: actions/checkout@v4
 
-      - name: Debug UnifiOS structure
-        run: |
-          echo "=== UNIFIOS DIRECTORY STRUCTURE DEBUG ==="
-          echo "Repository root files:"
-          ls -la | grep unifios
-          echo ""
-          echo "UnifiOS directory:"
-          ls -la unifios/ || echo "unifios directory not found!"
-          echo ""
-          echo "Bases directory:"
-          ls -la unifios/bases/ || echo "bases directory not found!"
-          echo ""
-          echo "Matrix base: ${{ matrix.base }}"
-          echo "Checking files for ${{ matrix.base }}:"
-          
-          if [ -d "unifios/bases/${{ matrix.base }}" ]; then
-            ls -la "unifios/bases/${{ matrix.base }}/"
-            for file in versions.txt prefix buildroot-config.txt kernel-config; do
-              if [ -f "unifios/bases/${{ matrix.base }}/$file" ]; then
-                echo "✅ $file exists ($(stat -c%s unifios/bases/${{ matrix.base }}/$file) bytes)"
-                if [ "$file" = "versions.txt" ] || [ "$file" = "prefix" ]; then
-                  echo "   Content: '$(cat unifios/bases/${{ matrix.base }}/$file)'"
-                fi
-              else
-                echo "❌ $file MISSING!"
-              fi
-            done
-          else
-            echo "❌ Base directory 'unifios/bases/${{ matrix.base }}' does not exist!"
-            echo "Available bases:"
-            ls -la unifios/bases/ || echo "No bases directory"
-          fi
-          
-          echo ""
-          echo "=== This will show exactly what's missing ==="
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -1579,99 +1472,6 @@ ENV_EOF
             file \
             python3
 
-      - name: Debug and validate versions configuration
-        run: |
-          echo "=== DEBUGGING VERSIONS CONFIGURATION ==="
-          
-          BASE="${{ matrix.base }}"
-          echo "Building for base: $BASE"
-          
-          # Check if the base directory exists
-          if [ ! -d "unifios/bases/$BASE" ]; then
-            echo "ERROR: Base directory 'unifios/bases/$BASE' does not exist!"
-            echo "Available bases:"
-            ls -la unifios/bases/ || echo "No bases directory found"
-            exit 1
-          fi
-          
-          # Check versions.txt file
-          VERSIONS_FILE="unifios/bases/$BASE/versions.txt"
-          echo "Checking versions file: $VERSIONS_FILE"
-          
-          if [ ! -f "$VERSIONS_FILE" ]; then
-            echo "ERROR: versions.txt file does not exist at $VERSIONS_FILE"
-            echo "Files in base directory:"
-            ls -la "unifios/bases/$BASE/"
-            exit 1
-          fi
-          
-          # Read and validate versions
-          echo "=== VERSIONS FILE CONTENT ==="
-          echo "File size: $(stat -c%s "$VERSIONS_FILE") bytes"
-          echo "File content (raw):"
-          od -c "$VERSIONS_FILE" || echo "Could not read file with od"
-          echo "File content (cat):"
-          cat "$VERSIONS_FILE" || echo "Could not read file with cat"
-          echo "=== END VERSIONS FILE CONTENT ==="
-          
-          # Read versions and validate
-          VERSIONS_CONTENT=$(cat "$VERSIONS_FILE" 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          echo "Processed versions content: '$VERSIONS_CONTENT'"
-          echo "Length: ${#VERSIONS_CONTENT}"
-          
-          if [ -z "$VERSIONS_CONTENT" ]; then
-            echo "ERROR: versions.txt file is empty or contains only whitespace"
-            echo "This will cause the build to fail with empty version strings"
-            
-            # Provide default versions based on the base name
-            case "$BASE" in
-              udm-1.9.0-10)
-                DEFAULT_VERSIONS="1.9.0-10"
-                ;;
-              udm-1.10.0-8)
-                DEFAULT_VERSIONS="1.10.0-8"
-                ;;
-              udm-1.10.0-12)
-                DEFAULT_VERSIONS="1.10.0-12"
-                ;;
-              udm-se-2.2.4)
-                DEFAULT_VERSIONS="2.2.4"
-                ;;
-              udr-2.2.12)
-                DEFAULT_VERSIONS="2.2.12"
-                ;;
-              *)
-                DEFAULT_VERSIONS="unknown"
-                ;;
-            esac
-            
-            echo "Suggested default version for $BASE: $DEFAULT_VERSIONS"
-            echo "You need to add this to $VERSIONS_FILE"
-            exit 1
-          fi
-          
-          # Check prefix file
-          PREFIX_FILE="unifios/bases/$BASE/prefix"
-          echo "=== CHECKING PREFIX FILE ==="
-          
-          if [ ! -f "$PREFIX_FILE" ]; then
-            echo "ERROR: prefix file does not exist at $PREFIX_FILE"
-            exit 1
-          fi
-          
-          PREFIX_CONTENT=$(cat "$PREFIX_FILE" 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          echo "Prefix content: '$PREFIX_CONTENT'"
-          
-          if [ -z "$PREFIX_CONTENT" ]; then
-            echo "ERROR: prefix file is empty"
-            exit 1
-          fi
-          
-          echo "=== CONFIGURATION VALIDATION COMPLETE ==="
-          echo "Base: $BASE"
-          echo "Versions: $VERSIONS_CONTENT"
-          echo "Prefix: $PREFIX_CONTENT"
-            
       - name: Restore buildroot
         uses: actions/download-artifact@v4
         with:
@@ -1679,124 +1479,19 @@ ENV_EOF
           
       - name: Extract buildroot
         run: tar -xf buildroot.tar
-
-      - name: Fix Buildroot M4 SIGSTKSZ compatibility issue
-        run: |
-          cd buildroot-2017.11.1
-          
-          echo "=== Patching Buildroot's M4 for SIGSTKSZ compatibility ==="
-          
-          # Create a patch for buildroot's M4 c-stack.c file
-          mkdir -p package/m4
-          
-          # Create a PROPER unified diff patch file using cat with EOF delimiter
-          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'EOF'
---- a/lib/c-stack.c.orig
-+++ b/lib/c-stack.c
-@@ -50,7 +50,17 @@
- #if ! HAVE_STACK_T && ! defined stack_t
- typedef struct sigaltstack stack_t;
- #endif
--#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
-+
-+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
-+#ifndef SIGSTKSZ_CONST
-+# ifdef SIGSTKSZ
-+#  if __builtin_constant_p(SIGSTKSZ)
-+#   define SIGSTKSZ_CONST SIGSTKSZ
-+#  else
-+#   define SIGSTKSZ_CONST 16384
-+#  endif
-+# else
-+#  define SIGSTKSZ_CONST 16384
-+# endif
-+#endif
-+
-+#elif HAVE_LIBSIGSEGV && SIGSTKSZ_CONST < 16384
- 
- # include <sigsegv.h>
- 
-@@ -134,7 +144,7 @@
-   /* Leave a small gap between the stack heuristic and the start
-      of the data we return to the application, but keep the stack
-      on a page boundary.  */
--  char const *stack_base = stack_heuristic - SIGSTKSZ - page_size;
-+  char const *stack_base = stack_heuristic - SIGSTKSZ_CONST - page_size;
-   char const *stack_base_aligned = 
-     (char const *) ((uintptr_t) stack_base & ~(page_size - 1));
-   size_t stack_size = stack_heuristic - stack_base_aligned;
-@@ -228,7 +238,7 @@
- # if HAVE_LIBSIGSEGV
- 
-   c_stack_action = action ? action : null_action;
--  return c_stack_action (SIGSEGV, SIGSTKSZ < 16384 ? 16384 : SIGSTKSZ);
-+  return c_stack_action (SIGSEGV, SIGSTKSZ_CONST < 16384 ? 16384 : SIGSTKSZ_CONST);
- 
- # else
- 
-EOF
-          
-          echo "✓ Created proper unified diff patch for M4 SIGSTKSZ compatibility"
-          
-          # Apply fix to existing M4 build directory if it exists
-          if [ -d "output/build/host-m4-1.4.18" ]; then
-            echo "Applying SIGSTKSZ fix to existing M4 build directory..."
-            cd output/build/host-m4-1.4.18
-            
-            # Create backup and apply simple sed fix
-            if [ -f "lib/c-stack.c" ]; then
-              cp lib/c-stack.c lib/c-stack.c.backup 2>/dev/null || true
-              
-              echo "Applying SIGSTKSZ compatibility fix..."
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
-                echo "Sed failed, trying conservative fix..."
-                echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
-                sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
-              }
-              
-              echo "✓ Applied SIGSTKSZ compatibility fix to existing M4 build"
-            fi
-            
-            cd ../../..
-          fi
-          
-          # Set M4-specific build environment variables
-          echo "=== Setting M4-specific build environment ==="
-          
-          cat > setup-m4-env.sh << 'ENV_EOF'
-#!/bin/bash
-export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export CFLAGS="${CFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCFLAGS="${HOSTCFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCXXFLAGS="${HOSTCXXFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-exec "$@"
-ENV_EOF
-          
-          chmod +x setup-m4-env.sh
-          
-          echo "✓ Applied M4 SIGSTKSZ fixes with proper patch format"
-          echo "  1. Created valid unified diff patch"
-          echo "  2. Fixed existing M4 build if present"
-          echo "  3. Created environment wrapper script"
         
-      - name: Debug buildroot state
-        run: |
-          echo "Buildroot directory contents:"
-          ls -la buildroot-2017.11.1/
-          echo "Checking for config files:"
-          ls -la unifios/bases/${{ matrix.base }}/ || echo "Base config directory not found"
-          echo "Checking versions file:"
-          cat unifios/bases/${{ matrix.base }}/versions.txt || echo "Versions file not found"
-          
       - name: Configure buildroot
         run: |
           cd buildroot-2017.11.1
+          
+          echo "=== CONFIGURING BUILDROOT FOR ${{ matrix.base }} ==="
           
           # Ensure output directory structure exists
           mkdir -p output/build output/target output/host output/staging
           
           # Recreate the .br-external.mk file if it doesn't exist
           if [ ! -f "output/.br-external.mk" ]; then
+            echo "Creating .br-external.mk file..."
             echo "# This file is automatically generated by buildroot" > output/.br-external.mk
             echo "# DO NOT EDIT" >> output/.br-external.mk
             echo "" >> output/.br-external.mk
@@ -1816,34 +1511,39 @@ ENV_EOF
             echo "BR2_EXTERNAL_DEPS :=" >> output/.br-external.mk
           fi
           
+          # Check if base configuration files exist
+          if [ ! -f "../unifios/bases/${{ matrix.base }}/buildroot-config.txt" ]; then
+            echo "ERROR: buildroot-config.txt not found for ${{ matrix.base }}"
+            echo "Available base configurations:"
+            ls -la ../unifios/bases/ || echo "No base configurations found"
+            exit 1
+          fi
+          
+          if [ ! -f "../unifios/bases/${{ matrix.base }}/kernel-config" ]; then
+            echo "ERROR: kernel-config not found for ${{ matrix.base }}"
+            exit 1
+          fi
+          
           # Copy configs
           cp ../unifios/bases/${{ matrix.base }}/buildroot-config.txt .config
           cp ../unifios/bases/${{ matrix.base }}/kernel-config kernel-config
           
-          # Configure buildroot
+          # Configure buildroot with enhanced compatibility
+          echo "Running make olddefconfig..."
           make olddefconfig
-          
-      - name: Verify buildroot setup
-        run: |
-          cd buildroot-2017.11.1
-          echo "=== Buildroot Setup Verification ==="
-          echo "Working directory: $(pwd)"
-          echo "Output directory contents:"
-          ls -la output/ || echo "No output directory"
-          echo "BR External makefile:"
-          ls -la output/.br-external.mk && echo "Content:" && head -5 output/.br-external.mk || echo "File missing"
-          echo "Config file:"
-          ls -la .config || echo "No .config file"
-          echo "Kernel config:"
-          ls -la kernel-config || echo "No kernel-config file"
-          echo "Testing make dry-run:"
-          make -n help >/dev/null && echo "Make system functional" || echo "Make system has issues"
           
       - name: Build wireguard module
         run: |
           mkdir -p modules
+          
+          # Read configuration files
+          if [ ! -f "unifios/bases/${{ matrix.base }}/versions.txt" ]; then
+            echo "ERROR: versions.txt not found for ${{ matrix.base }}"
+            exit 1
+          fi
+          
           versions="$(cat unifios/bases/${{ matrix.base }}/versions.txt)"
-          prefix="$(cat unifios/bases/${{ matrix.base }}/prefix)"
+          prefix="$(cat unifios/bases/${{ matrix.base }}/prefix 2>/dev/null || echo '')"
           
           # Validate versions
           if [ -z "$versions" ]; then
@@ -1854,6 +1554,7 @@ ENV_EOF
           echo "Building for versions: $versions"
           echo "Using prefix: $prefix"
           
+          # Clean and prepare patches
           rm -rf ./buildroot-2017.11.1/linux-patches ./buildroot-2017.11.1/patches
           if [ -d "unifios/bases/${{ matrix.base }}/linux-patches" ]; then
             cp -rf "unifios/bases/${{ matrix.base }}/linux-patches" ./buildroot-2017.11.1/
@@ -1867,87 +1568,165 @@ ENV_EOF
           
           cd buildroot-2017.11.1
           
-          # Set host compiler flags for DTC compatibility
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          # Set comprehensive host compiler flags for maximum compatibility
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -Wno-implicit-function-declaration -Wno-unused-but-set-variable -Wno-unused-variable"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -Wno-implicit-function-declaration"
+          export CFLAGS="-fcommon -Wno-error"
+          export CXXFLAGS="-fcommon -Wno-error"
+          
+          # Additional environment variables for build stability
+          export MAKEFLAGS="-j$(($(nproc) * 3 / 4))"
+          export FORCE_UNSAFE_CONFIGURE=1
+          export LC_ALL=C
           
           # Calculate optimal parallel jobs
           NPROC=$(nproc)
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
           
-          (IFS=','
+          echo "Using $PARALLEL_JOBS parallel jobs (from $NPROC cores)"
+          echo "Host flags: HOSTCFLAGS=$HOSTCFLAGS"
+          
+          # Build for each version
+          IFS=','
           for ver in $versions; do
             echo "=== Building version $ver ==="
             
-            # Verify buildroot state before build
-            if [ ! -f "output/.br-external.mk" ]; then
-              echo "Error: .br-external.mk missing before build"
-              ls -la output/
-              exit 1
-            fi
-            
-            # Check if clean target exists before using it
+            # Enhanced cleaning - be more thorough
+            echo "Cleaning previous build..."
             if make -n wireguard-linux-compat-dirclean >/dev/null 2>&1; then
-              echo "Cleaning previous build..."
               make wireguard-linux-compat-dirclean || echo "Clean failed, continuing"
             else
-              echo "Clean target not available, skipping"
+              echo "Clean target not available, manual cleanup"
+              rm -rf output/build/wireguard-linux-compat-* 2>/dev/null || true
+              rm -rf output/build/linux-custom 2>/dev/null || true
             fi
+            
+            # Clean kernel build artifacts that might cause issues
+            rm -rf output/build/linux-* 2>/dev/null || true
             
             echo "Setting kernel version to: $ver"
             sed -i -e '/CONFIG_LOCALVERSION=/s/.*/CONFIG_LOCALVERSION="'$ver'"/' kernel-config
             
-            # Build with detailed error reporting and DTC fixes
+            # Ensure the config is properly applied
+            make olddefconfig
+            
+            # Build with enhanced error handling and retry logic
             echo "Starting build for version $ver..."
-            if ! make wireguard-linux-compat-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"; then
-              echo "=== BUILD FAILED for version $ver ==="
-              echo "Build directory contents:"
-              ls -la output/build/ || echo "No build directory"
-              echo "Checking for build logs:"
-              find output -name "*.log" -exec echo "=== {} ===" \; -exec tail -20 {} \; 2>/dev/null || echo "No logs found"
-              echo "Makefile targets available:"
-              make help | grep wireguard || echo "No wireguard targets found"
-              # Show specific error details
-              if [ -f "output/build/build-time.log" ]; then
-                echo "=== Build time log ==="
-                tail -50 output/build/build-time.log
+            BUILD_SUCCESS=0
+            
+            # First attempt - normal build
+            if make wireguard-linux-compat-rebuild -j$PARALLEL_JOBS \
+                HOSTCFLAGS="$HOSTCFLAGS" \
+                HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+                CFLAGS="$CFLAGS" \
+                CXXFLAGS="$CXXFLAGS" \
+                V=1; then
+              BUILD_SUCCESS=1
+              echo "✓ Build succeeded on first attempt"
+            else
+              echo "⚠ First build attempt failed, trying with single job..."
+              
+              # Second attempt - single threaded for better error visibility
+              if make wireguard-linux-compat-rebuild -j1 \
+                  HOSTCFLAGS="$HOSTCFLAGS" \
+                  HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+                  CFLAGS="$CFLAGS" \
+                  CXXFLAGS="$CXXFLAGS" \
+                  V=1; then
+                BUILD_SUCCESS=1
+                echo "✓ Build succeeded on single-threaded attempt"
+              else
+                echo "⚠ Single-threaded build failed, trying with make clean first..."
+                
+                # Third attempt - clean everything and try again
+                make clean || true
+                rm -rf output/build/wireguard-linux-compat-* output/build/linux-* 2>/dev/null || true
+                
+                if make wireguard-linux-compat-rebuild -j1 \
+                    HOSTCFLAGS="$HOSTCFLAGS" \
+                    HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+                    CFLAGS="$CFLAGS" \
+                    CXXFLAGS="$CXXFLAGS" \
+                    V=1; then
+                  BUILD_SUCCESS=1
+                  echo "✓ Build succeeded after clean"
+                fi
               fi
+            fi
+            
+            if [ $BUILD_SUCCESS -eq 0 ]; then
+              echo "=== BUILD FAILED for version $ver after all attempts ==="
+              echo "Build directory contents:"
+              ls -la output/build/ 2>/dev/null || echo "No build directory"
+              echo "Checking for build logs:"
+              find output -name "*.log" -exec echo "=== {} ===" \; -exec tail -50 {} \; 2>/dev/null || echo "No logs found"
+              echo "Checking for specific error patterns:"
+              grep -r "error:" output/build/ 2>/dev/null | tail -20 || echo "No error patterns found"
               exit 1
             fi
             
-            # Copy files with error checking
-            if [ ! -f "output/build/wireguard-linux-compat-$MODULE_VERSION/src/wireguard.ko" ]; then
-              echo "Error: wireguard.ko not found for version $ver"
-              ls -la output/build/wireguard-linux-compat-$MODULE_VERSION/src/ || echo "Source directory not found"
-              exit 1
+            # Verify and copy files with enhanced error checking
+            WIREGUARD_KO_PATH="output/build/wireguard-linux-compat-$MODULE_VERSION/src/wireguard.ko"
+            if [ ! -f "$WIREGUARD_KO_PATH" ]; then
+              # Check for alternative locations
+              echo "Standard wireguard.ko not found, checking alternative locations..."
+              ALTERNATIVE_PATHS=(
+                "output/build/amneziawg-linux-kernel-module-$MODULE_VERSION/src/amneziawg.ko"
+                "output/build/amneziawg-linux-kernel-module-$MODULE_VERSION/src/wireguard.ko"
+                "output/build/wireguard-linux-compat-$MODULE_VERSION/src/amneziawg.ko"
+              )
+              
+              FOUND_MODULE=""
+              for alt_path in "${ALTERNATIVE_PATHS[@]}"; do
+                if [ -f "$alt_path" ]; then
+                  FOUND_MODULE="$alt_path"
+                  echo "Found module at alternative location: $alt_path"
+                  break
+                fi
+              done
+              
+              if [ -z "$FOUND_MODULE" ]; then
+                echo "Error: No WireGuard module found for version $ver"
+                echo "Searched locations:"
+                for path in "${ALTERNATIVE_PATHS[@]}"; do
+                  echo "  - $path"
+                done
+                echo "$WIREGUARD_KO_PATH"
+                echo "Available files in build directory:"
+                find output/build -name "*.ko" 2>/dev/null || echo "No .ko files found"
+                exit 1
+              fi
+              WIREGUARD_KO_PATH="$FOUND_MODULE"
             fi
             
-            cp output/build/wireguard-linux-compat-$MODULE_VERSION/src/wireguard.ko ../modules/wireguard-${prefix}${ver}.ko
+            # Copy the main WireGuard module
+            cp "$WIREGUARD_KO_PATH" "../modules/wireguard-${prefix}${ver}.ko"
+            echo "✓ Copied WireGuard module: wireguard-${prefix}${ver}.ko"
             
-            # Copy netfilter modules if they exist
-            if [ -f "output/build/linux-custom/net/ipv4/netfilter/iptable_raw.ko" ]; then
-              cp output/build/linux-custom/net/ipv4/netfilter/iptable_raw.ko ../modules/iptable_raw-${prefix}${ver}.ko
+            # Copy netfilter modules if they exist (optional)
+            IPTABLE_RAW_PATH="output/build/linux-custom/net/ipv4/netfilter/iptable_raw.ko"
+            if [ -f "$IPTABLE_RAW_PATH" ]; then
+              cp "$IPTABLE_RAW_PATH" "../modules/iptable_raw-${prefix}${ver}.ko"
+              echo "✓ Copied iptable_raw module: iptable_raw-${prefix}${ver}.ko"
             else
-              echo "Warning: iptable_raw.ko not found for version $ver"
+              echo "ℹ iptable_raw.ko not found for version $ver (optional)"
             fi
             
-            if [ -f "output/build/linux-custom/net/ipv6/netfilter/ip6table_raw.ko" ]; then
-              cp output/build/linux-custom/net/ipv6/netfilter/ip6table_raw.ko ../modules/ip6table_raw-${prefix}${ver}.ko
+            IP6TABLE_RAW_PATH="output/build/linux-custom/net/ipv6/netfilter/ip6table_raw.ko"
+            if [ -f "$IP6TABLE_RAW_PATH" ]; then
+              cp "$IP6TABLE_RAW_PATH" "../modules/ip6table_raw-${prefix}${ver}.ko"
+              echo "✓ Copied ip6table_raw module: ip6table_raw-${prefix}${ver}.ko"
             else
-              echo "Warning: ip6table_raw.ko not found for version $ver"
+              echo "ℹ ip6table_raw.ko not found for version $ver (optional)"
             fi
-          done)
+            
+            echo "✓ Successfully built and copied modules for version $ver"
+          done
           
-      - name: Verify built modules
-        run: |
-          echo "Built modules:"
-          ls -la modules/
-          # Check that we have at least some modules
-          if [ -z "$(ls modules/)" ]; then
-            echo "Error: No modules were built"
-            exit 1
-          fi
+          echo "=== BUILD COMPLETED SUCCESSFULLY FOR ALL VERSIONS ==="
+          echo "Final module inventory:"
+          ls -la ../modules/
           
       - name: Enhanced error reporting
         if: failure()
@@ -2049,49 +1828,22 @@ ENV_EOF
           # Configure buildroot
           make olddefconfig
           
-      - name: Build WireGuard tools
+      - name: Build tools
         run: |
           cd buildroot-2017.11.1
-          # Set host compiler flags for DTC compatibility
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          # Set host compiler flags for compatibility
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
           
           # Calculate optimal parallel jobs
           NPROC=$(nproc)
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
           
-          make wireguard-tools-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/usr/bin/wg
-          
-      - name: Build bash
-        run: |
-          cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          make bash-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/bin/bash
-          
-      - name: Build resolvconf
-        run: |
-          cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          make openresolv-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/sbin/resolvconf
-          
-      - name: Build qrencode
-        run: |
-          cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          make libqrencode-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/usr/bin/qrencode
+          make wireguard-tools-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
+          make bash-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
+          make openresolv-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
+          make libqrencode-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
           
       - name: Collect tools
         run: |
@@ -2132,103 +1884,4 @@ ENV_EOF
           
           # Check for wg-quick in the build directory - try both locations
           if [ -f "output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
-            cp output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
-          elif [ -f "output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
-            cp output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
-          else
-            echo "Warning: wg-quick not found, checking available directories..."
-            find output/build -name "linux.bash" -type f || echo "No wg-quick script found"
-          fi
-          
-      - name: Store tools
-        uses: actions/upload-artifact@v4
-        with:
-          name: tools
-          path: tools
-
-  udm-package:
-    needs: [udm-build-tools, udm-build-modules]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Prepare
-        run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
-        
-      - name: Restore modules from all builds
-        run: |
-          mkdir -p temp-modules
-          # Download each module artifact individually
-          for base in udm-1.9.0-10 udm-1.10.0-8 udm-1.10.0-12 udm-se-2.2.4 udr-2.2.12; do
-            echo "Downloading modules for $base"
-          done
-          
-      - name: Download udm-1.9.0-10 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-1.9.0-10
-          path: temp-modules/udm-1.9.0-10
-        continue-on-error: true
-        
-      - name: Download udm-1.10.0-8 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-1.10.0-8
-          path: temp-modules/udm-1.10.0-8
-        continue-on-error: true
-        
-      - name: Download udm-1.10.0-12 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-1.10.0-12
-          path: temp-modules/udm-1.10.0-12
-        continue-on-error: true
-        
-      - name: Download udm-se-2.2.4 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-se-2.2.4
-          path: temp-modules/udm-se-2.2.4
-        continue-on-error: true
-        
-      - name: Download udr-2.2.12 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udr-2.2.12
-          path: temp-modules/udr-2.2.12
-        continue-on-error: true
-        
-      - name: Consolidate modules
-        run: |
-          # Move all modules to the package directory
-          find temp-modules -name "*.ko" -exec cp {} package/wireguard/modules/ \;
-          echo "Consolidated modules:"
-          ls -la package/wireguard/modules/
-          
-      - name: Restore tools
-        uses: actions/download-artifact@v4
-        with:
-          name: tools
-          path: package/wireguard/tools
-          
-      - name: Add setup
-        run: cp unifios/setup_wireguard.sh package/wireguard/
-        
-      - name: Fix permissions
-        run: |
-          if [ -f "package/wireguard/tools/resolvconf.conf" ]; then
-            mv package/wireguard/tools/resolvconf.conf package/wireguard/etc
-          fi
-          chmod +x package/wireguard/tools/* package/wireguard/setup_wireguard.sh 2>/dev/null || true
-          sudo chown -R root:root package/wireguard
-          
-      - name: Package
-        run: tar -C package -czf UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz ./
-        
-      - name: Store package
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-unifios
-          path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
+            cp output/build/
