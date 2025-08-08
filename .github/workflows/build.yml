@@ -2108,3 +2108,88 @@ jobs:
         with:
           name: tools
           path: tools
+
+  udm-package:
+    needs: [udm-build-tools, udm-build-modules]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Prepare
+        run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
+        
+      - name: Download all modules
+        run: |
+          mkdir -p temp-modules
+          for base in udm-1.9.0-10 udm-1.10.0-8 udm-1.10.0-12 udm-se-2.2.4 udr-2.2.12; do
+            echo "Downloading modules for $base"
+          done
+          
+      - name: Download udm-1.9.0-10 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-1.9.0-10
+          path: temp-modules/udm-1.9.0-10
+        continue-on-error: true
+        
+      - name: Download udm-1.10.0-8 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-1.10.0-8
+          path: temp-modules/udm-1.10.0-8
+        continue-on-error: true
+        
+      - name: Download udm-1.10.0-12 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-1.10.0-12
+          path: temp-modules/udm-1.10.0-12
+        continue-on-error: true
+        
+      - name: Download udm-se-2.2.4 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-se-2.2.4
+          path: temp-modules/udm-se-2.2.4
+        continue-on-error: true
+        
+      - name: Download udr-2.2.12 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udr-2.2.12
+          path: temp-modules/udr-2.2.12
+        continue-on-error: true
+        
+      - name: Consolidate modules
+        run: |
+          find temp-modules -name "*.ko" -exec cp {} package/wireguard/modules/ \;
+          echo "Consolidated modules:"
+          ls -la package/wireguard/modules/
+          
+      - name: Restore tools
+        uses: actions/download-artifact@v4
+        with:
+          name: tools
+          path: package/wireguard/tools
+          
+      - name: Add setup
+        run: cp unifios/setup_wireguard.sh package/wireguard/
+        
+      - name: Fix permissions
+        run: |
+          if [ -f "package/wireguard/tools/resolvconf.conf" ]; then
+            mv package/wireguard/tools/resolvconf.conf package/wireguard/etc
+          fi
+          chmod +x package/wireguard/tools/* package/wireguard/setup_wireguard.sh 2>/dev/null || true
+          sudo chown -R root:root package/wireguard
+          
+      - name: Package
+        run: tar -C package -czf UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz ./
+        
+      - name: Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-unifios
+          path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
