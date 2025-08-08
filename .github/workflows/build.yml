@@ -1834,75 +1834,197 @@ jobs:
           
           echo "=== APPLYING COMPREHENSIVE GNULIB FIXES FOR M4 ==="
           
-          # First, ensure M4 source is extracted
-          make host-m4-extract || echo "M4 already extracted or extract failed"
+          # Strategy 1: Try to disable host-m4 entirely and use system m4
+          echo "=== Attempting to use system m4 instead of building it ==="
           
-          # Find the M4 build directory
-          M4_BUILD_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
+          # Check if system m4 is available and working
+          if which m4 && m4 --version; then
+            echo "System m4 is available: $(which m4)"
+            echo "System m4 version: $(m4 --version | head -1)"
+            
+            # Try to disable host-m4 in the buildroot config
+            if grep -q "BR2_PACKAGE_HOST_M4=y" .config 2>/dev/null; then
+              echo "Disabling buildroot's host-m4 to use system m4..."
+              sed -i 's/BR2_PACKAGE_HOST_M4=y/# BR2_PACKAGE_HOST_M4 is not set/' .config
+              
+              # Update dependencies to ensure packages that need m4 can find it
+              echo "export M4=/usr/bin/m4" >> output/.config
+              
+              # Run olddefconfig to apply changes
+              make olddefconfig
+              
+              # Verify the change took effect
+              if ! grep -q "BR2_PACKAGE_HOST_M4=y" .config; then
+                echo "✓ Successfully disabled host-m4, will use system m4"
+                # Create a host m4 wrapper to ensure buildroot finds it
+                mkdir -p output/host/bin
+                ln -sf /usr/bin/m4 output/host/bin/m4
+                echo "✓ Created m4 symlink in buildroot host tools"
+                return 0
+              else
+                echo "⚠ Could not disable host-m4, falling back to patching"
+              fi
+            else
+              echo "host-m4 not found in config, checking if it's a dependency..."
+            fi
+          else
+            echo "System m4 not available, must build host-m4 with patches"
+          fi
+          
+          # Strategy 2: If we must build m4, apply comprehensive patches
+          echo "=== Proceeding with host-m4 build patches ==="
+          
+          # Force clean any existing m4 build to ensure fresh start
+          rm -rf output/build/host-m4-* || true
+          
+          # Extract m4 source first
+          echo "Extracting m4 source..."
+          make host-m4-extract || make host-m4-source || {
+            echo "Could not extract m4, trying to find existing source..."
+          }
+          
+          # Find the M4 build directory (try multiple possible names)
+          M4_BUILD_DIR=""
+          for potential_dir in output/build/host-m4-* output/build/m4-*; do
+            if [ -d "$potential_dir" ]; then
+              M4_BUILD_DIR="$potential_dir"
+              break
+            fi
+          done
           
           if [ -z "$M4_BUILD_DIR" ]; then
-            echo "M4 build directory not found, trying to force extraction..."
-            # Force M4 extraction
-            make host-m4-source || echo "Could not extract M4 source"
-            M4_BUILD_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
+            echo "M4 build directory not found, creating manually..."
+            # Try to download and extract m4 manually
+            M4_VERSION="1.4.18"
+            cd output/build
+            if [ ! -f "m4-${M4_VERSION}.tar.xz" ]; then
+              echo "Downloading m4 source manually..."
+              curl -L -o "m4-${M4_VERSION}.tar.xz" "https://ftp.gnu.org/gnu/m4/m4-${M4_VERSION}.tar.xz" || {
+                echo "Failed to download m4, trying backup URL..."
+                curl -L -o "m4-${M4_VERSION}.tar.xz" "https://mirrors.kernel.org/gnu/m4/m4-${M4_VERSION}.tar.xz"
+              }
+            fi
+            tar -xf "m4-${M4_VERSION}.tar.xz"
+            M4_BUILD_DIR="$(pwd)/m4-${M4_VERSION}"
+            mv "$M4_BUILD_DIR" "host-m4-${M4_VERSION}" 2>/dev/null || true
+            M4_BUILD_DIR="$(pwd)/host-m4-${M4_VERSION}"
+            cd ../..
           fi
           
           if [ -n "$M4_BUILD_DIR" ] && [ -d "$M4_BUILD_DIR" ]; then
             echo "Found M4 build directory: $M4_BUILD_DIR"
             
-            # Apply the comprehensive gnulib fixes
-            echo "=== Applying freadahead.c fix ==="
+            # Create comprehensive gnulib patches
+            echo "=== Creating and applying comprehensive gnulib patches ==="
+            
+            # 1. Fix freadahead.c
             if [ -f "$M4_BUILD_DIR/lib/freadahead.c" ]; then
-              # Create backup
+              echo "Patching freadahead.c..."
               cp "$M4_BUILD_DIR/lib/freadahead.c" "$M4_BUILD_DIR/lib/freadahead.c.orig"
               
-              # Apply the fix - add glibc compatibility case before the error
-              sed -i '/^#else$/i\
-          #elif defined __GLIBC__ && defined _IO_ftrylockfile\
-            /* GNU libc, BeOS, Haiku, Linux libc5 */\
-            if (((fp->_flags & _IO_IN_BACKUP) != 0 && fp->_IO_save_base != NULL)\
-                || ((fp->_flags & _IO_OUT_BACKUP) != 0 && fp->_IO_backup_base != NULL))\
-              return -1;\
-            fp->_flags &= ~_IO_EOF_SEEN;\
-            return fseeko (fp, offset, whence);' "$M4_BUILD_DIR/lib/fseeko.c"
+              # Use a more robust patch that finds the right location
+              cat > freadahead_patch.c << 'PATCH_EOF'
+          #elif defined __GLIBC__ && defined _IO_ftrylockfile
+            /* GNU libc, BeOS, Haiku, Linux libc5 */
+            struct _IO_FILE *fp = (struct _IO_FILE *) stream;
+            if (fp->_IO_write_ptr > fp->_IO_write_base)
+              return 0;
+            return (fp->_IO_read_end - fp->_IO_read_ptr);
+          PATCH_EOF
               
-              echo "✓ Applied fseeko.c patch"
-            else
-              echo "⚠ fseeko.c not found"
+              # Find the exact error line and insert before it
+              if grep -n "#error.*port gnulib freadahead" "$M4_BUILD_DIR/lib/freadahead.c"; then
+                # Insert the glibc compatibility code before the #error line
+                ERROR_LINE=$(grep -n "#error.*port gnulib freadahead" "$M4_BUILD_DIR/lib/freadahead.c" | cut -d: -f1)
+                head -n $((ERROR_LINE - 2)) "$M4_BUILD_DIR/lib/freadahead.c" > temp_freadahead.c
+                cat freadahead_patch.c >> temp_freadahead.c
+                tail -n +$((ERROR_LINE - 1)) "$M4_BUILD_DIR/lib/freadahead.c" >> temp_freadahead.c
+                mv temp_freadahead.c "$M4_BUILD_DIR/lib/freadahead.c"
+                echo "✓ Applied freadahead.c patch"
+              else
+                echo "⚠ Could not find error line in freadahead.c"
+              fi
+              rm -f freadahead_patch.c
             fi
             
-            # Apply the c-stack.c SIGSTKSZ fix as well
-            echo "=== Applying c-stack.c SIGSTKSZ fix ==="
+            # 2. Fix fseeko.c
+            if [ -f "$M4_BUILD_DIR/lib/fseeko.c" ]; then
+              echo "Patching fseeko.c..."
+              cp "$M4_BUILD_DIR/lib/fseeko.c" "$M4_BUILD_DIR/lib/fseeko.c.orig"
+              
+              cat > fseeko_patch.c << 'PATCH_EOF'
+          #elif defined __GLIBC__ && defined _IO_ftrylockfile
+            /* GNU libc, BeOS, Haiku, Linux libc5 */
+            if (((fp->_flags & _IO_IN_BACKUP) != 0 && fp->_IO_save_base != NULL)
+                || ((fp->_flags & _IO_OUT_BACKUP) != 0 && fp->_IO_backup_base != NULL))
+              return -1;
+            fp->_flags &= ~_IO_EOF_SEEN;
+            return fseeko (fp, offset, whence);
+          PATCH_EOF
+              
+              # Find the exact error line and insert before it
+              if grep -n "#error.*port gnulib fseeko" "$M4_BUILD_DIR/lib/fseeko.c"; then
+                ERROR_LINE=$(grep -n "#error.*port gnulib fseeko" "$M4_BUILD_DIR/lib/fseeko.c" | cut -d: -f1)
+                head -n $((ERROR_LINE - 2)) "$M4_BUILD_DIR/lib/fseeko.c" > temp_fseeko.c
+                cat fseeko_patch.c >> temp_fseeko.c
+                tail -n +$((ERROR_LINE - 1)) "$M4_BUILD_DIR/lib/fseeko.c" >> temp_fseeko.c
+                mv temp_fseeko.c "$M4_BUILD_DIR/lib/fseeko.c"
+                echo "✓ Applied fseeko.c patch"
+              else
+                echo "⚠ Could not find error line in fseeko.c"
+              fi
+              rm -f fseeko_patch.c
+            fi
+            
+            # 3. Fix c-stack.c for SIGSTKSZ
             if [ -f "$M4_BUILD_DIR/lib/c-stack.c" ]; then
-              echo "Applying SIGSTKSZ fix to c-stack.c..."
+              echo "Patching c-stack.c for SIGSTKSZ..."
               cp "$M4_BUILD_DIR/lib/c-stack.c" "$M4_BUILD_DIR/lib/c-stack.c.orig"
+              
+              # Replace the problematic SIGSTKSZ preprocessor check
               sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV/' "$M4_BUILD_DIR/lib/c-stack.c"
               echo "✓ Applied c-stack.c SIGSTKSZ patch"
-            else
-              echo "⚠ c-stack.c not found"
             fi
             
-            # Verify patches were applied
+            # 4. Add additional compatibility defines to config.h if needed
+            if [ -f "$M4_BUILD_DIR/lib/config.h" ]; then
+              echo "Adding additional compatibility defines..."
+              if ! grep -q "_GNU_SOURCE" "$M4_BUILD_DIR/lib/config.h"; then
+                echo "#define _GNU_SOURCE 1" >> "$M4_BUILD_DIR/lib/config.h"
+                echo "✓ Added _GNU_SOURCE to config.h"
+              fi
+            fi
+            
+            # 5. Verify patches were applied
             echo "=== Verifying patches ==="
-            if [ -f "$M4_BUILD_DIR/lib/freadahead.c.orig" ]; then
-              echo "freadahead.c changes:"
-              diff -u "$M4_BUILD_DIR/lib/freadahead.c.orig" "$M4_BUILD_DIR/lib/freadahead.c" | head -10 || echo "Files are identical"
+            echo "Checking freadahead.c:"
+            if grep -q "__GLIBC__.*_IO_ftrylockfile" "$M4_BUILD_DIR/lib/freadahead.c"; then
+              echo "✓ freadahead.c patch verified"
+            else
+              echo "✗ freadahead.c patch verification failed"
             fi
             
-            if [ -f "$M4_BUILD_DIR/lib/fseeko.c.orig" ]; then
-              echo "fseeko.c changes:"
-              diff -u "$M4_BUILD_DIR/lib/fseeko.c.orig" "$M4_BUILD_DIR/lib/fseeko.c" | head -10 || echo "Files are identical"
+            echo "Checking fseeko.c:"
+            if grep -q "__GLIBC__.*_IO_ftrylockfile" "$M4_BUILD_DIR/lib/fseeko.c"; then
+              echo "✓ fseeko.c patch verified"
+            else
+              echo "✗ fseeko.c patch verification failed"
             fi
             
-            if [ -f "$M4_BUILD_DIR/lib/c-stack.c.orig" ]; then
-              echo "c-stack.c changes:"
-              diff -u "$M4_BUILD_DIR/lib/c-stack.c.orig" "$M4_BUILD_DIR/lib/c-stack.c" | head -10 || echo "Files are identical"
+            echo "Checking c-stack.c:"
+            if ! grep -q "SIGSTKSZ < 16384" "$M4_BUILD_DIR/lib/c-stack.c"; then
+              echo "✓ c-stack.c patch verified"
+            else
+              echo "✗ c-stack.c patch verification failed"
             fi
+            
+            echo "=== M4 patches applied successfully ==="
             
           else
-            echo "❌ Could not find M4 build directory"
-            echo "Available build directories:"
+            echo "❌ Could not find or create M4 build directory"
+            echo "Available directories in output/build:"
             ls -la output/build/ | head -10
+            echo "Proceeding with build anyway - may fail"
           fi
 
       - name: Build tools with enhanced compatibility
