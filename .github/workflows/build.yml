@@ -1872,7 +1872,6 @@ jobs:
                 sed -i '/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/c\
 #elif HAVE_LIBSIGSEGV && (!defined(SIGSTKSZ) || SIGSTKSZ < 16384)' "$M4_BUILD_DIR/lib/c-stack.c"
                 
-                echo "✓ Applied alternative SIGSTKSZ fix"
               fi
               
               # Show the fixed line for verification
