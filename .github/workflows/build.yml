@@ -356,72 +356,78 @@ jobs:
             echo "Using default version info: $VERSION.$PATCHLEVEL.$SUBLEVEL"
           fi
           
-          # Create Makefile with proper kernel module build support using printf to avoid YAML issues
-          printf '# Kernel module build Makefile for WireGuard\n' > Makefile
-          printf 'VERSION = %s\n' "$VERSION" >> Makefile
-          printf 'PATCHLEVEL = %s\n' "$PATCHLEVEL" >> Makefile
-          printf 'SUBLEVEL = %s\n' "$SUBLEVEL" >> Makefile
-          printf 'EXTRAVERSION = %s\n' "$EXTRAVERSION" >> Makefile
-          printf '\n' >> Makefile
-          printf 'KERNELRELEASE = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)\n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Default architecture and cross-compiler (can be overridden)\n' >> Makefile
-          printf 'ARCH ?= mips\n' >> Makefile
-          printf 'CROSS_COMPILE ?= \n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Important build variables\n' >> Makefile
-          printf 'export ARCH CROSS_COMPILE\n' >> Makefile
-          printf 'export srctree := $(CURDIR)\n' >> Makefile
-          printf 'export objtree := $(CURDIR)\n' >> Makefile
-          printf 'export src := $(srctree)\n' >> Makefile
-          printf 'export obj := $(objtree)\n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Kernel configuration\n' >> Makefile
-          printf 'CONFIG_MODULES = y\n' >> Makefile
-          printf 'CONFIG_MODULE_UNLOAD = y\n' >> Makefile
-          printf 'export CONFIG_MODULES CONFIG_MODULE_UNLOAD\n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Default target\n' >> Makefile
-          printf '.PHONY: all modules modules_prepare clean help\n' >> Makefile
-          printf 'all: modules\n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Main modules target - the one that was missing\n' >> Makefile
-          printf 'modules:\n' >> Makefile
-          printf '\t@echo "Building kernel modules..."\n' >> Makefile
-          printf '\t@echo "ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)"\n' >> Makefile
-          printf '\t@echo "KERNELRELEASE=$(KERNELRELEASE)"\n' >> Makefile
-          printf '\t@if [ -f scripts/Makefile.build ]; then \\\n' >> Makefile
-          printf '\t\t$(MAKE) -f $(srctree)/Makefile $(if $(M),M=$(M),) modules; \\\n' >> Makefile
-          printf '\telse \\\n' >> Makefile
-          printf '\t\techo "Using simplified module build..."; \\\n' >> Makefile
-          printf '\t\tif [ -n "$(M)" ]; then \\\n' >> Makefile
-          printf '\t\t\t$(MAKE) -C $(M) KERNELDIR=$(CURDIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) module; \\\n' >> Makefile
-          printf '\t\telse \\\n' >> Makefile
-          printf '\t\t\techo "No module directory specified (M= parameter required)"; \\\n' >> Makefile
-          printf '\t\t\texit 1; \\\n' >> Makefile
-          printf '\t\tfi; \\\n' >> Makefile
-          printf '\tfi\n' >> Makefile
-          printf '\n' >> Makefile
-          printf 'modules_prepare:\n' >> Makefile
-          printf '\t@echo "Module preparation completed"\n' >> Makefile
-          printf '\n' >> Makefile
-          printf 'modules_install:\n' >> Makefile
-          printf '\t@echo "Module install not implemented"\n' >> Makefile
-          printf '\n' >> Makefile
-          printf 'clean:\n' >> Makefile
-          printf '\t@find . -name "*.ko" -o -name "*.o" -o -name "*.mod.c" -o -name "*.mod.o" | xargs rm -f 2>/dev/null || true\n' >> Makefile
-          printf '\t@rm -f modules.order Module.symvers 2>/dev/null || true\n' >> Makefile
-          printf '\n' >> Makefile
-          printf 'help:\n' >> Makefile
-          printf '\t@echo "Available targets:"\n' >> Makefile
-          printf '\t@echo "  all         - Build all modules (default)"\n' >> Makefile
-          printf '\t@echo "  modules     - Build kernel modules"\n' >> Makefile
-          printf '\t@echo "  clean       - Clean build artifacts"\n' >> Makefile
-          printf '\t@echo "  help        - Show this help"\n' >> Makefile
-          printf '\t@echo ""\n' >> Makefile
-          printf '\t@echo "Usage: make modules M=/path/to/module/source ARCH=mips CROSS_COMPILE=toolchain-prefix-"\n' >> Makefile
+          # Create Makefile with proper kernel module build support
+          echo '# Kernel module build Makefile for WireGuard' > Makefile
+          echo 'VERSION = 3' >> Makefile
+          echo 'PATCHLEVEL = 10' >> Makefile
+          echo 'SUBLEVEL = 107' >> Makefile
+          echo 'EXTRAVERSION = ' >> Makefile
+          echo '' >> Makefile
+          echo 'KERNELRELEASE = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)' >> Makefile
+          echo '' >> Makefile
+          echo '# Default architecture and cross-compiler (can be overridden)' >> Makefile
+          echo 'ARCH ?= mips' >> Makefile
+          echo 'CROSS_COMPILE ?= ' >> Makefile
+          echo '' >> Makefile
+          echo '# Important build variables' >> Makefile
+          echo 'export ARCH CROSS_COMPILE' >> Makefile
+          echo 'export srctree := $(CURDIR)' >> Makefile
+          echo 'export objtree := $(CURDIR)' >> Makefile
+          echo 'export src := $(srctree)' >> Makefile
+          echo 'export obj := $(objtree)' >> Makefile
+          echo '' >> Makefile
+          echo '# Kernel configuration' >> Makefile
+          echo 'CONFIG_MODULES = y' >> Makefile
+          echo 'CONFIG_MODULE_UNLOAD = y' >> Makefile
+          echo 'export CONFIG_MODULES CONFIG_MODULE_UNLOAD' >> Makefile
+          echo '' >> Makefile
+          echo '# Default target' >> Makefile
+          echo '.PHONY: all modules modules_prepare clean help' >> Makefile
+          echo 'all: modules' >> Makefile
+          echo '' >> Makefile
+          echo '# Main modules target' >> Makefile
+          echo 'modules:' >> Makefile
+          echo -e '\t@echo "Building kernel modules..."' >> Makefile
+          echo -e '\t@echo "ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)"' >> Makefile
+          echo -e '\t@echo "KERNELRELEASE=$(KERNELRELEASE)"' >> Makefile
+          echo -e '\t@if [ -f scripts/Makefile.build ]; then \\' >> Makefile
+          echo -e '\t\t$(MAKE) -f $(srctree)/Makefile $(if $(M),M=$(M),) modules; \\' >> Makefile
+          echo -e '\telse \\' >> Makefile
+          echo -e '\t\techo "Using simplified module build..."; \\' >> Makefile
+          echo -e '\t\tif [ -n "$(M)" ]; then \\' >> Makefile
+          echo -e '\t\t\t$(MAKE) -C $(M) KERNELDIR=$(CURDIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) module; \\' >> Makefile
+          echo -e '\t\telse \\' >> Makefile
+          echo -e '\t\t\techo "No module directory specified (M= parameter required)"; \\' >> Makefile
+          echo -e '\t\t\texit 1; \\' >> Makefile
+          echo -e '\t\tfi; \\' >> Makefile
+          echo -e '\tfi' >> Makefile
+          echo '' >> Makefile
+          echo 'modules_prepare:' >> Makefile
+          echo -e '\t@echo "Module preparation completed"' >> Makefile
+          echo '' >> Makefile
+          echo 'modules_install:' >> Makefile
+          echo -e '\t@echo "Module install not implemented"' >> Makefile
+          echo '' >> Makefile
+          echo 'clean:' >> Makefile
+          echo -e '\t@find . -name "*.ko" -o -name "*.o" -o -name "*.mod.c" -o -name "*.mod.o" | xargs rm -f 2>/dev/null || true' >> Makefile
+          echo -e '\t@rm -f modules.order Module.symvers 2>/dev/null || true' >> Makefile
+          echo '' >> Makefile
+          echo 'help:' >> Makefile
+          echo -e '\t@echo "Available targets:"' >> Makefile
+          echo -e '\t@echo "  all         - Build all modules (default)"' >> Makefile
+          echo -e '\t@echo "  modules     - Build kernel modules"' >> Makefile
+          echo -e '\t@echo "  clean       - Clean build artifacts"' >> Makefile
+          echo -e '\t@echo "  help        - Show this help"' >> Makefile
+          echo -e '\t@echo ""' >> Makefile
+          echo -e '\t@echo "Usage: make modules M=/path/to/module/source ARCH=mips CROSS_COMPILE=toolchain-prefix-"' >> Makefile
           
-          # Ensure essential directories are present in headers (they should be from the O= build)
+          # Update version info in Makefile
+          sed -i "s/VERSION = 3/VERSION = $VERSION/" Makefile
+          sed -i "s/PATCHLEVEL = 10/PATCHLEVEL = $PATCHLEVEL/" Makefile
+          sed -i "s/SUBLEVEL = 107/SUBLEVEL = $SUBLEVEL/" Makefile
+          sed -i "s/EXTRAVERSION = /EXTRAVERSION = $EXTRAVERSION/" Makefile
+          
+          # Ensure essential directories are present in headers
           echo "Verifying essential kernel build files are present..."
           
           # The O= build should have already created scripts and include, just verify
@@ -531,7 +537,6 @@ jobs:
             ../scripts/version.sh > version.h
           fi
           
-          
           echo "=== Module source structure ==="
           find . -name "Makefile*" -o -name "*.mk" | head -10
           ls -la .
@@ -614,12 +619,6 @@ jobs:
             echo "/usr/local/bin" >> $GITHUB_PATH
           fi
           
-          # Verify toolchain installation
-          echo "=== Verifying toolchain installation ==="
-          which ${{ matrix.toolchain }}gcc || echo "Compiler not found in PATH"
-          ls -la /usr/local/bin/${{ matrix.toolchain }}* || echo "No toolchain files found"
-          ${{ matrix.toolchain }}gcc --version || echo "Compiler version check failed"
-          
       - name: Restore module source
         uses: actions/download-artifact@v4
         with:
@@ -664,94 +663,90 @@ jobs:
           # 2. Add compatibility definitions to compat.h
           echo "Adding compatibility definitions..."
           if ! grep -q "get_random_u8" compat/compat.h; then
-              printf '\n/* get_random_u8 compatibility for older kernels */\n' >> compat/compat.h
-              printf '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)\n' >> compat/compat.h
-              printf 'static inline u8 get_random_u8(void)\n' >> compat/compat.h
-              printf '{\n' >> compat/compat.h
-              printf '    u32 random_val = get_random_u32();\n' >> compat/compat.h
-              printf '    return (u8)(random_val & 0xFF);\n' >> compat/compat.h
-              printf '}\n' >> compat/compat.h
-              printf '#endif\n' >> compat/compat.h
+              echo "" >> compat/compat.h
+              echo "/* get_random_u8 compatibility for older kernels */" >> compat/compat.h
+              echo "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)" >> compat/compat.h
+              echo "static inline u8 get_random_u8(void)" >> compat/compat.h
+              echo "{" >> compat/compat.h
+              echo "    u32 random_val = get_random_u32();" >> compat/compat.h
+              echo "    return (u8)(random_val & 0xFF);" >> compat/compat.h
+              echo "}" >> compat/compat.h
+              echo "#endif" >> compat/compat.h
               echo "✓ Added get_random_u8 compatibility wrapper"
           fi
           
-          # 3. COMPREHENSIVE NETLINK COMPATIBILITY FIXES
-          echo "=== Applying comprehensive netlink.c fixes ==="
-          
-          # Create a Python script to safely fix the netlink.c preprocessor issues
-          cat > fix_netlink.py << 'PYTHON_SCRIPT_END'
-          #!/usr/bin/env python3
-          import re
-          import sys
-          
-          def fix_netlink_file(filename):
-              """Fix preprocessor issues in netlink.c"""
-              print(f"Processing {filename}...")
-              
-              with open(filename, 'r') as f:
-                  content = f.read()
-              
-              lines = content.splitlines()
-              fixed_lines = []
-              
-              # Track conditional compilation state
-              if_stack = []
-              in_genl_family = False
-              
-              i = 0
-              while i < len(lines):
-                  line = lines[i].rstrip()
-                  
-                  # Check for orphaned #else directives
-                  if line.strip() == '#else':
-                      # Look for context to determine if this #else is orphaned
-                      if not if_stack:
-                          print(f"Found orphaned #else at line {i+1}, commenting it out")
-                          fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
-                          i += 1
-                          continue
-                  
-                  # Track #if/#endif pairs
-                  if line.strip().startswith('#if'):
-                      if_stack.append(i)
-                  elif line.strip().startswith('#endif'):
-                      if if_stack:
-                          if_stack.pop()
-                  elif line.strip().startswith('#else'):
-                      if not if_stack:
-                          # This is an orphaned #else
-                          print(f"Orphaned #else found at line {i+1}")
-                          fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
-                          i += 1
-                          continue
-                  
-                  # Handle genl_family structure modifications more carefully
-                  if '.mcgrps = wg_genl_mcgrps,' in line:
-                      in_genl_family = True
-                      # Add proper conditional compilation
-                      fixed_lines.append('#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)')
-                      fixed_lines.append(line)
-                  elif in_genl_family and '.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)' in line:
-                      fixed_lines.append(line)
-                      fixed_lines.append('#else')
-                      fixed_lines.append('\t/* .mcgrps and .n_mcgrps not available in older kernels */')
-                      fixed_lines.append('#endif')
-                      in_genl_family = False
-                  else:
-                      fixed_lines.append(line)
-                  
-                  i += 1
-              
-              # Write the fixed content
-              with open(filename, 'w') as f:
-                  f.write('\n'.join(fixed_lines) + '\n')
-              
-              print(f"✓ Fixed {filename}")
-              return True
-          
-          if __name__ == "__main__":
-              fix_netlink_file("netlink.c")
-          PYTHON_SCRIPT_END
+          # 3. Create Python script for netlink fixes
+          echo '#!/usr/bin/env python3' > fix_netlink.py
+          echo 'import re' >> fix_netlink.py
+          echo 'import sys' >> fix_netlink.py
+          echo '' >> fix_netlink.py
+          echo 'def fix_netlink_file(filename):' >> fix_netlink.py
+          echo '    """Fix preprocessor issues in netlink.c"""' >> fix_netlink.py
+          echo '    print(f"Processing {filename}...")' >> fix_netlink.py
+          echo '    ' >> fix_netlink.py
+          echo '    with open(filename, "r") as f:' >> fix_netlink.py
+          echo '        content = f.read()' >> fix_netlink.py
+          echo '    ' >> fix_netlink.py
+          echo '    lines = content.splitlines()' >> fix_netlink.py
+          echo '    fixed_lines = []' >> fix_netlink.py
+          echo '    ' >> fix_netlink.py
+          echo '    # Track conditional compilation state' >> fix_netlink.py
+          echo '    if_stack = []' >> fix_netlink.py
+          echo '    in_genl_family = False' >> fix_netlink.py
+          echo '    ' >> fix_netlink.py
+          echo '    i = 0' >> fix_netlink.py
+          echo '    while i < len(lines):' >> fix_netlink.py
+          echo '        line = lines[i].rstrip()' >> fix_netlink.py
+          echo '        ' >> fix_netlink.py
+          echo '        # Check for orphaned #else directives' >> fix_netlink.py
+          echo '        if line.strip() == "#else":' >> fix_netlink.py
+          echo '            # Look for context to determine if this #else is orphaned' >> fix_netlink.py
+          echo '            if not if_stack:' >> fix_netlink.py
+          echo '                print(f"Found orphaned #else at line {i+1}, commenting it out")' >> fix_netlink.py
+          echo '                fixed_lines.append(f"// FIXED: removed orphaned #else (was line {i+1})")' >> fix_netlink.py
+          echo '                i += 1' >> fix_netlink.py
+          echo '                continue' >> fix_netlink.py
+          echo '        ' >> fix_netlink.py
+          echo '        # Track #if/#endif pairs' >> fix_netlink.py
+          echo '        if line.strip().startswith("#if"):' >> fix_netlink.py
+          echo '            if_stack.append(i)' >> fix_netlink.py
+          echo '        elif line.strip().startswith("#endif"):' >> fix_netlink.py
+          echo '            if if_stack:' >> fix_netlink.py
+          echo '                if_stack.pop()' >> fix_netlink.py
+          echo '        elif line.strip().startswith("#else"):' >> fix_netlink.py
+          echo '            if not if_stack:' >> fix_netlink.py
+          echo '                # This is an orphaned #else' >> fix_netlink.py
+          echo '                print(f"Orphaned #else found at line {i+1}")' >> fix_netlink.py
+          echo '                fixed_lines.append(f"// FIXED: removed orphaned #else (was line {i+1})")' >> fix_netlink.py
+          echo '                i += 1' >> fix_netlink.py
+          echo '                continue' >> fix_netlink.py
+          echo '        ' >> fix_netlink.py
+          echo '        # Handle genl_family structure modifications more carefully' >> fix_netlink.py
+          echo '        if ".mcgrps = wg_genl_mcgrps," in line:' >> fix_netlink.py
+          echo '            in_genl_family = True' >> fix_netlink.py
+          echo '            # Add proper conditional compilation' >> fix_netlink.py
+          echo '            fixed_lines.append("#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)")' >> fix_netlink.py
+          echo '            fixed_lines.append(line)' >> fix_netlink.py
+          echo '        elif in_genl_family and ".n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)" in line:' >> fix_netlink.py
+          echo '            fixed_lines.append(line)' >> fix_netlink.py
+          echo '            fixed_lines.append("#else")' >> fix_netlink.py
+          echo '            fixed_lines.append("\t/* .mcgrps and .n_mcgrps not available in older kernels */")' >> fix_netlink.py
+          echo '            fixed_lines.append("#endif")' >> fix_netlink.py
+          echo '            in_genl_family = False' >> fix_netlink.py
+          echo '        else:' >> fix_netlink.py
+          echo '            fixed_lines.append(line)' >> fix_netlink.py
+          echo '        ' >> fix_netlink.py
+          echo '        i += 1' >> fix_netlink.py
+          echo '    ' >> fix_netlink.py
+          echo '    # Write the fixed content' >> fix_netlink.py
+          echo '    with open(filename, "w") as f:' >> fix_netlink.py
+          echo '        f.write("\\n".join(fixed_lines) + "\\n")' >> fix_netlink.py
+          echo '    ' >> fix_netlink.py
+          echo '    print(f"✓ Fixed {filename}")' >> fix_netlink.py
+          echo '    return True' >> fix_netlink.py
+          echo '' >> fix_netlink.py
+          echo 'if __name__ == "__main__":' >> fix_netlink.py
+          echo '    fix_netlink_file("netlink.c")' >> fix_netlink.py
           
           # Run the Python fix script
           python3 fix_netlink.py
@@ -762,19 +757,17 @@ jobs:
           # Fix registration function with proper conditional compilation
           if grep -q "ret = genl_register_family(&genl_family);" netlink.c; then
               # Create a proper patch for registration
-              cat > registration_fix.patch << 'PATCH_END'
-          	ret = genl_register_family(&genl_family);
-          #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
-          	if (ret < 0)
-          		return ret;
-          	/* Register multicast groups separately for older kernels */
-          	ret = genl_register_mc_group(&genl_family, &wg_genl_mcgrps[0]);
-          	if (ret < 0) {
-          		genl_unregister_family(&genl_family);
-          		return ret;
-          	}
-          #endif
-          PATCH_END
+              echo '	ret = genl_register_family(&genl_family);' > registration_fix.patch
+              echo '#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)' >> registration_fix.patch
+              echo '	if (ret < 0)' >> registration_fix.patch
+              echo '		return ret;' >> registration_fix.patch
+              echo '	/* Register multicast groups separately for older kernels */' >> registration_fix.patch
+              echo '	ret = genl_register_mc_group(&genl_family, &wg_genl_mcgrps[0]);' >> registration_fix.patch
+              echo '	if (ret < 0) {' >> registration_fix.patch
+              echo '		genl_unregister_family(&genl_family);' >> registration_fix.patch
+              echo '		return ret;' >> registration_fix.patch
+              echo '	}' >> registration_fix.patch
+              echo '#endif' >> registration_fix.patch
               
               # Apply the patch after the registration line
               sed -i '/ret = genl_register_family(&genl_family);/r registration_fix.patch' netlink.c
@@ -786,11 +779,11 @@ jobs:
           if grep -q "genlmsg_multicast_netns(&genl_family" netlink.c; then
               # Replace the multicast call with conditional version
               sed -i '/ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);/c\
-          #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)\
-          	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);\
-          #else\
-          	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);\
-          #endif' netlink.c
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)\
+	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);\
+#else\
+	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);\
+#endif' netlink.c
               echo "✓ Fixed multicast function"
           fi
           
@@ -798,48 +791,49 @@ jobs:
           echo "=== Validating preprocessor syntax ==="
           
           # Count #if, #else, #endif to ensure they're balanced
-          python3 << 'VALIDATION_SCRIPT'
-          with open('netlink.c', 'r') as f:
-              content = f.read()
+          echo 'import sys' > validate_netlink.py
+          echo 'with open("netlink.c", "r") as f:' >> validate_netlink.py
+          echo '    content = f.read()' >> validate_netlink.py
+          echo '' >> validate_netlink.py
+          echo 'lines = content.splitlines()' >> validate_netlink.py
+          echo 'if_count = 0' >> validate_netlink.py
+          echo 'else_count = 0' >> validate_netlink.py
+          echo 'endif_count = 0' >> validate_netlink.py
+          echo 'orphaned_else = []' >> validate_netlink.py
+          echo '' >> validate_netlink.py
+          echo 'stack = []' >> validate_netlink.py
+          echo 'for i, line in enumerate(lines):' >> validate_netlink.py
+          echo '    stripped = line.strip()' >> validate_netlink.py
+          echo '    if stripped.startswith("#if"):' >> validate_netlink.py
+          echo '        if_count += 1' >> validate_netlink.py
+          echo '        stack.append(("if", i+1))' >> validate_netlink.py
+          echo '    elif stripped == "#else":' >> validate_netlink.py
+          echo '        else_count += 1' >> validate_netlink.py
+          echo '        if not stack or stack[-1][0] != "if":' >> validate_netlink.py
+          echo '            orphaned_else.append(i+1)' >> validate_netlink.py
+          echo '        else:' >> validate_netlink.py
+          echo '            stack[-1] = ("else", i+1)' >> validate_netlink.py
+          echo '    elif stripped.startswith("#endif"):' >> validate_netlink.py
+          echo '        endif_count += 1' >> validate_netlink.py
+          echo '        if stack:' >> validate_netlink.py
+          echo '            stack.pop()' >> validate_netlink.py
+          echo '' >> validate_netlink.py
+          echo 'print(f"Preprocessor directive counts:")' >> validate_netlink.py
+          echo 'print(f"  #if variants: {if_count}")' >> validate_netlink.py
+          echo 'print(f"  #else: {else_count}")' >> validate_netlink.py
+          echo 'print(f"  #endif: {endif_count}")' >> validate_netlink.py
+          echo '' >> validate_netlink.py
+          echo 'if orphaned_else:' >> validate_netlink.py
+          echo '    print(f"⚠ Found orphaned #else directives at lines: {orphaned_else}")' >> validate_netlink.py
+          echo '    sys.exit(1)' >> validate_netlink.py
+          echo '' >> validate_netlink.py
+          echo 'if stack:' >> validate_netlink.py
+          echo '    print(f"⚠ Unmatched directives: {stack}")' >> validate_netlink.py
+          echo '    sys.exit(1)' >> validate_netlink.py
+          echo '' >> validate_netlink.py
+          echo 'print("✓ Preprocessor directives are properly balanced")' >> validate_netlink.py
           
-          lines = content.splitlines()
-          if_count = 0
-          else_count = 0
-          endif_count = 0
-          orphaned_else = []
-          
-          stack = []
-          for i, line in enumerate(lines):
-              stripped = line.strip()
-              if stripped.startswith('#if'):
-                  if_count += 1
-                  stack.append(('if', i+1))
-              elif stripped == '#else':
-                  else_count += 1
-                  if not stack or stack[-1][0] != 'if':
-                      orphaned_else.append(i+1)
-                  else:
-                      stack[-1] = ('else', i+1)
-              elif stripped.startswith('#endif'):
-                  endif_count += 1
-                  if stack:
-                      stack.pop()
-          
-          print(f"Preprocessor directive counts:")
-          print(f"  #if variants: {if_count}")
-          print(f"  #else: {else_count}")
-          print(f"  #endif: {endif_count}")
-          
-          if orphaned_else:
-              print(f"⚠ Found orphaned #else directives at lines: {orphaned_else}")
-              sys.exit(1)
-          
-          if stack:
-              print(f"⚠ Unmatched directives: {stack}")
-              sys.exit(1)
-          
-          print("✓ Preprocessor directives are properly balanced")
-          VALIDATION_SCRIPT
+          python3 validate_netlink.py
           
           # 6. Adjust compiler flags to suppress warnings that become errors
           echo "Adjusting compiler flags..."
@@ -856,24 +850,7 @@ jobs:
       - name: Build module
         run: |
           export PATH="/usr/local/bin:$PATH"
-          
-          # Verify toolchain is available before building
-          echo "=== Verifying toolchain availability ==="
-          which ${{ matrix.toolchain }}gcc || echo "ERROR: Compiler not found in PATH"
-          ${{ matrix.toolchain }}gcc --version || echo "ERROR: Compiler version check failed"
-          
           cd module/src
-          
-          echo "=== Current module/src structure ==="
-          ls -la
-          
-          echo "=== Looking for Makefiles ==="
-          find . -name "Makefile*" -o -name "*.mk" | head -10
-          
-          if [ -f "Makefile" ]; then
-            echo "=== Main Makefile content (first 20 lines) ==="
-            head -20 Makefile
-          fi
           
           echo "=== Target kernel version: $KERNEL_VERSION ==="
           
@@ -889,21 +866,6 @@ jobs:
             echo "Warning: Kernel source not found at $KERNEL_SRC, using headers dir"
             export KERNEL_SRC="$KERNELDIR"
           fi
-          
-          echo "=== Kernel build environment verification ==="
-          echo "KERNELDIR: $KERNELDIR"
-          echo "KERNEL_SRC: $KERNEL_SRC"
-          echo "Checking headers directory:"
-          ls -la "$KERNELDIR" | head -10
-          echo "Checking if source Makefile exists:"
-          if [ -f "$KERNEL_SRC/Makefile" ]; then
-            echo "✓ Source Makefile found"
-            grep -E "^(VERSION|PATCHLEVEL|SUBLEVEL)" "$KERNEL_SRC/Makefile" | head -3 || echo "No version info in Makefile"
-          else
-            echo "⚠ Source Makefile not found at $KERNEL_SRC/Makefile"
-          fi
-          echo "Checking for scripts directory:"
-          ls -la "$KERNEL_SRC/scripts" | head -5 || echo "No scripts directory found"
           
           # Force disable WERROR and add compatibility flags
           export KCFLAGS="-Wno-error -Wno-address -Wno-array-bounds -Wno-missing-attributes -Wno-stringop-overread"
@@ -921,19 +883,6 @@ jobs:
           echo "Kernel release: $KERNELRELEASE"
           echo "Parallel jobs: $PARALLEL_JOBS"
           
-          # Use the official AmnesiaWG build system - no hacks needed!
-          echo "=== Building module using official AmnesiaWG Makefile ==="
-          echo "Build environment:"
-          echo "  KERNELDIR: $KERNELDIR"
-          echo "  ARCH: $ARCH"
-          echo "  CROSS_COMPILE: $CROSS_COMPILE"
-          echo "  KERNELRELEASE: $KERNELRELEASE"
-          echo "  EXTRA_CFLAGS: $KCFLAGS"
-          
-          # We need the platform-specific headers, but the headers directory has problematic Makefiles
-          # Solution: Use the headers for compilation but avoid the recursive build system
-          echo "Building module using platform-specific headers (avoiding circular dependencies)"
-          
           # Verify we have the essential files from headers generation
           if [ ! -f "$KERNELDIR/.config" ]; then
               echo "ERROR: Missing kernel configuration (.config) - headers build may have failed"
@@ -949,7 +898,7 @@ jobs:
           echo "✓ Kernel config: $(wc -l < "$KERNELDIR/.config") lines"
           echo "✓ Include path: $KERNELDIR/include"
           
-          # Method 1: Use the clean kernel source directory (this should work!)
+          # Method 1: Use the clean kernel source directory
           KERNEL_SRC_DIR="$KERNELDIR/source"
           if [ -d "$KERNEL_SRC_DIR" ] && [ -f "$KERNEL_SRC_DIR/Makefile" ]; then
               echo "=== Using clean kernel source directory ==="
@@ -1038,46 +987,6 @@ jobs:
               exit 1
           fi
           
-      - name: Validate built module
-        run: |
-          cd module/src
-          echo "=== MODULE VALIDATION ==="
-          if [ -f "wireguard.ko" ]; then
-            # Basic checks
-            echo "Module size: $(stat -c%s wireguard.ko) bytes"
-            echo "Module type: $(file wireguard.ko)"
-            
-            # Check for required symbols
-            if ${{ matrix.toolchain }}nm wireguard.ko | grep -q "init_module\|cleanup_module"; then
-              echo "✓ Required module symbols found"
-            else
-              echo "⚠ Warning: Standard module symbols not found"
-            fi
-          else
-            echo "❌ Module not found!"
-            exit 1
-          fi
-          
-      - name: Enhanced error reporting
-        if: failure()
-        run: |
-          echo "=== MODULE BUILD FAILURE ANALYSIS ==="
-          echo "Available disk space:"
-          df -h
-          echo "Memory usage:"
-          free -h
-          echo "Build directory contents:"
-          find module/src -name "*.log" -exec echo "=== {} ===" \; -exec tail -50 {} \; 2>/dev/null || echo "No logs found"
-          echo "Generated files:"
-          find module/src -name "*.ko" -o -name "*.o" | head -20
-          echo "Kernel headers check:"
-          ls -la headers/ | head -10
-          echo "Netlink.c backup comparison:"
-          if [ -f "module/src/netlink.c.backup" ]; then
-            echo "=== Showing netlink.c changes ==="
-            diff -u module/src/netlink.c.backup module/src/netlink.c | head -50 || echo "Files are identical or diff failed"
-          fi
-          
       - name: Upload built module
         uses: actions/upload-artifact@v4
         with:
@@ -1104,7 +1013,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl build-essential xz-utils file
           
-          # Use system cross-compilation packages instead of musl.cc
+          # Use system cross-compilation packages
           ARCH="${{ matrix.arch }}"
           
           if [ "$ARCH" = "mips" ]; then
@@ -1116,13 +1025,6 @@ jobs:
           fi
           
           echo "TOOLCHAIN_PREFIX=${TOOLCHAIN_PREFIX}" >> $GITHUB_ENV
-          echo "TOOLCHAIN_DIR=/usr" >> $GITHUB_ENV
-          
-      - name: Verify cross-compilation setup
-        run: |
-          echo "Checking cross-compiler:"
-          which ${TOOLCHAIN_PREFIX}-gcc || echo "Compiler not found in PATH"
-          ${TOOLCHAIN_PREFIX}-gcc --version || echo "Compiler execution failed"
           
       - name: Build tools
         env:
@@ -1159,19 +1061,6 @@ jobs:
           # Use system cross-compiler with static linking
           CC="${TOOLCHAIN_PREFIX}-gcc" LDFLAGS="-static" make -j$(nproc)
           ${TOOLCHAIN_PREFIX}-strip --strip-unneeded wg
-          
-      - name: Validate built tools
-        run: |
-          cd tools/src
-          echo "=== TOOLS VALIDATION ==="
-          if [ -f "wg" ]; then
-            echo "Tool size: $(stat -c%s wg) bytes"
-            echo "Tool type: $(file wg)"
-            echo "✓ wg tool built successfully"
-          else
-            echo "❌ wg tool not found!"
-            exit 1
-          fi
           
       - name: Upload built tools
         uses: actions/upload-artifact@v4
@@ -1252,37 +1141,12 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
-
-      - name: Debug repository structure for UnifiOS jobs
-        run: |
-          echo "=== REPOSITORY STRUCTURE CHECK ==="
-          echo "Current directory: $(pwd)"
-          echo "Repository root files:"
-          ls -la
-          echo ""
-          echo "Does unifios directory exist?"
-          ls -la unifios/ || echo "❌ unifios directory MISSING!"
-          echo ""
-          echo "Does bases directory exist?"  
-          ls -la unifios/bases/ || echo "❌ bases directory MISSING!"
-          echo ""
-          echo "Available bases:"
-          ls -la unifios/bases/ | grep -E "(udm|udr)" || echo "❌ No UnifiOS bases found!"
-          echo ""
-          echo "Checking required files for udm-1.9.0-10:"
-          for file in versions.txt prefix buildroot-config.txt kernel-config; do
-            if [ -f "unifios/bases/udm-1.9.0-10/$file" ]; then
-              echo "✅ $file exists"
-            else
-              echo "❌ $file MISSING!"
-            fi
-          done
       
       - name: Cache buildroot
         uses: actions/cache@v4
         with:
           path: buildroot-2017.11.1
-          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v5
+          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v7
           
       - name: Install system dependencies
         run: |
@@ -1365,105 +1229,6 @@ jobs:
           cp unifios/patches/0001-bison-glibc-change-work-around.patch buildroot-2017.11.1/package/bison
           cp unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch buildroot-2017.11.1/package/gcc/6.4.0
           
-      - name: Fix Buildroot M4 SIGSTKSZ compatibility issue
-        run: |
-          cd buildroot-2017.11.1
-          
-          echo "=== Patching Buildroot's M4 for SIGSTKSZ compatibility ==="
-          
-          # Create a patch for buildroot's M4 c-stack.c file
-          mkdir -p package/m4
-          
-          # Create a PROPER unified diff patch file using cat with EOF delimiter
-          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'EOF'
---- a/lib/c-stack.c.orig
-+++ b/lib/c-stack.c
-@@ -50,7 +50,17 @@
- #if ! HAVE_STACK_T && ! defined stack_t
- typedef struct sigaltstack stack_t;
- #endif
--#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
-+
-+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
-+#ifndef SIGSTKSZ_CONST
-+# ifdef SIGSTKSZ
-+#  if __builtin_constant_p(SIGSTKSZ)
-+#   define SIGSTKSZ_CONST SIGSTKSZ
-+#  else
-+#   define SIGSTKSZ_CONST 16384
-+#  endif
-+# else
-+#  define SIGSTKSZ_CONST 16384
-+# endif
-+#endif
-+
-+#elif HAVE_LIBSIGSEGV && SIGSTKSZ_CONST < 16384
- 
- # include <sigsegv.h>
- 
-@@ -134,7 +144,7 @@
-   /* Leave a small gap between the stack heuristic and the start
-      of the data we return to the application, but keep the stack
-      on a page boundary.  */
--  char const *stack_base = stack_heuristic - SIGSTKSZ - page_size;
-+  char const *stack_base = stack_heuristic - SIGSTKSZ_CONST - page_size;
-   char const *stack_base_aligned = 
-     (char const *) ((uintptr_t) stack_base & ~(page_size - 1));
-   size_t stack_size = stack_heuristic - stack_base_aligned;
-@@ -228,7 +238,7 @@
- # if HAVE_LIBSIGSEGV
- 
-   c_stack_action = action ? action : null_action;
--  return c_stack_action (SIGSEGV, SIGSTKSZ < 16384 ? 16384 : SIGSTKSZ);
-+  return c_stack_action (SIGSEGV, SIGSTKSZ_CONST < 16384 ? 16384 : SIGSTKSZ_CONST);
- 
- # else
- 
-EOF
-          
-          echo "✓ Created proper unified diff patch for M4 SIGSTKSZ compatibility"
-          
-          # Apply fix to existing M4 build directory if it exists
-          if [ -d "output/build/host-m4-1.4.18" ]; then
-            echo "Applying SIGSTKSZ fix to existing M4 build directory..."
-            cd output/build/host-m4-1.4.18
-            
-            # Create backup and apply simple sed fix
-            if [ -f "lib/c-stack.c" ]; then
-              cp lib/c-stack.c lib/c-stack.c.backup 2>/dev/null || true
-              
-              echo "Applying SIGSTKSZ compatibility fix..."
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
-                echo "Sed failed, trying conservative fix..."
-                echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
-                sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
-              }
-              
-              echo "✓ Applied SIGSTKSZ compatibility fix to existing M4 build"
-            fi
-            
-            cd ../../..
-          fi
-          
-          # Set M4-specific build environment variables
-          echo "=== Setting M4-specific build environment ==="
-          
-          cat > setup-m4-env.sh << 'ENV_EOF'
-#!/bin/bash
-export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export CFLAGS="${CFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCFLAGS="${HOSTCFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCXXFLAGS="${HOSTCXXFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-exec "$@"
-ENV_EOF
-          
-          chmod +x setup-m4-env.sh
-          
-          echo "✓ Applied M4 SIGSTKSZ fixes with proper patch format"
-          echo "  1. Created valid unified diff patch"
-          echo "  2. Fixed existing M4 build if present"
-          echo "  3. Created environment wrapper script"
-          
       - name: Initialize buildroot
         run: |
           cd buildroot-2017.11.1
@@ -1515,42 +1280,6 @@ ENV_EOF
     steps:
       - uses: actions/checkout@v4
 
-      - name: Debug UnifiOS structure
-        run: |
-          echo "=== UNIFIOS DIRECTORY STRUCTURE DEBUG ==="
-          echo "Repository root files:"
-          ls -la | grep unifios
-          echo ""
-          echo "UnifiOS directory:"
-          ls -la unifios/ || echo "unifios directory not found!"
-          echo ""
-          echo "Bases directory:"
-          ls -la unifios/bases/ || echo "bases directory not found!"
-          echo ""
-          echo "Matrix base: ${{ matrix.base }}"
-          echo "Checking files for ${{ matrix.base }}:"
-          
-          if [ -d "unifios/bases/${{ matrix.base }}" ]; then
-            ls -la "unifios/bases/${{ matrix.base }}/"
-            for file in versions.txt prefix buildroot-config.txt kernel-config; do
-              if [ -f "unifios/bases/${{ matrix.base }}/$file" ]; then
-                echo "✅ $file exists ($(stat -c%s unifios/bases/${{ matrix.base }}/$file) bytes)"
-                if [ "$file" = "versions.txt" ] || [ "$file" = "prefix" ]; then
-                  echo "   Content: '$(cat unifios/bases/${{ matrix.base }}/$file)'"
-                fi
-              else
-                echo "❌ $file MISSING!"
-              fi
-            done
-          else
-            echo "❌ Base directory 'unifios/bases/${{ matrix.base }}' does not exist!"
-            echo "Available bases:"
-            ls -la unifios/bases/ || echo "No bases directory"
-          fi
-          
-          echo ""
-          echo "=== This will show exactly what's missing ==="
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -1579,99 +1308,6 @@ ENV_EOF
             file \
             python3
 
-      - name: Debug and validate versions configuration
-        run: |
-          echo "=== DEBUGGING VERSIONS CONFIGURATION ==="
-          
-          BASE="${{ matrix.base }}"
-          echo "Building for base: $BASE"
-          
-          # Check if the base directory exists
-          if [ ! -d "unifios/bases/$BASE" ]; then
-            echo "ERROR: Base directory 'unifios/bases/$BASE' does not exist!"
-            echo "Available bases:"
-            ls -la unifios/bases/ || echo "No bases directory found"
-            exit 1
-          fi
-          
-          # Check versions.txt file
-          VERSIONS_FILE="unifios/bases/$BASE/versions.txt"
-          echo "Checking versions file: $VERSIONS_FILE"
-          
-          if [ ! -f "$VERSIONS_FILE" ]; then
-            echo "ERROR: versions.txt file does not exist at $VERSIONS_FILE"
-            echo "Files in base directory:"
-            ls -la "unifios/bases/$BASE/"
-            exit 1
-          fi
-          
-          # Read and validate versions
-          echo "=== VERSIONS FILE CONTENT ==="
-          echo "File size: $(stat -c%s "$VERSIONS_FILE") bytes"
-          echo "File content (raw):"
-          od -c "$VERSIONS_FILE" || echo "Could not read file with od"
-          echo "File content (cat):"
-          cat "$VERSIONS_FILE" || echo "Could not read file with cat"
-          echo "=== END VERSIONS FILE CONTENT ==="
-          
-          # Read versions and validate
-          VERSIONS_CONTENT=$(cat "$VERSIONS_FILE" 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          echo "Processed versions content: '$VERSIONS_CONTENT'"
-          echo "Length: ${#VERSIONS_CONTENT}"
-          
-          if [ -z "$VERSIONS_CONTENT" ]; then
-            echo "ERROR: versions.txt file is empty or contains only whitespace"
-            echo "This will cause the build to fail with empty version strings"
-            
-            # Provide default versions based on the base name
-            case "$BASE" in
-              udm-1.9.0-10)
-                DEFAULT_VERSIONS="1.9.0-10"
-                ;;
-              udm-1.10.0-8)
-                DEFAULT_VERSIONS="1.10.0-8"
-                ;;
-              udm-1.10.0-12)
-                DEFAULT_VERSIONS="1.10.0-12"
-                ;;
-              udm-se-2.2.4)
-                DEFAULT_VERSIONS="2.2.4"
-                ;;
-              udr-2.2.12)
-                DEFAULT_VERSIONS="2.2.12"
-                ;;
-              *)
-                DEFAULT_VERSIONS="unknown"
-                ;;
-            esac
-            
-            echo "Suggested default version for $BASE: $DEFAULT_VERSIONS"
-            echo "You need to add this to $VERSIONS_FILE"
-            exit 1
-          fi
-          
-          # Check prefix file
-          PREFIX_FILE="unifios/bases/$BASE/prefix"
-          echo "=== CHECKING PREFIX FILE ==="
-          
-          if [ ! -f "$PREFIX_FILE" ]; then
-            echo "ERROR: prefix file does not exist at $PREFIX_FILE"
-            exit 1
-          fi
-          
-          PREFIX_CONTENT=$(cat "$PREFIX_FILE" 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          echo "Prefix content: '$PREFIX_CONTENT'"
-          
-          if [ -z "$PREFIX_CONTENT" ]; then
-            echo "ERROR: prefix file is empty"
-            exit 1
-          fi
-          
-          echo "=== CONFIGURATION VALIDATION COMPLETE ==="
-          echo "Base: $BASE"
-          echo "Versions: $VERSIONS_CONTENT"
-          echo "Prefix: $PREFIX_CONTENT"
-            
       - name: Restore buildroot
         uses: actions/download-artifact@v4
         with:
@@ -1679,115 +1315,7 @@ ENV_EOF
           
       - name: Extract buildroot
         run: tar -xf buildroot.tar
-
-      - name: Fix Buildroot M4 SIGSTKSZ compatibility issue
-        run: |
-          cd buildroot-2017.11.1
-          
-          echo "=== Patching Buildroot's M4 for SIGSTKSZ compatibility ==="
-          
-          # Create a patch for buildroot's M4 c-stack.c file
-          mkdir -p package/m4
-          
-          # Create a PROPER unified diff patch file using cat with EOF delimiter
-          cat > package/m4/0002-fix-sigstksz-glibc-compatibility.patch << 'EOF'
---- a/lib/c-stack.c.orig
-+++ b/lib/c-stack.c
-@@ -50,7 +50,17 @@
- #if ! HAVE_STACK_T && ! defined stack_t
- typedef struct sigaltstack stack_t;
- #endif
--#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
-+
-+/* Fix for glibc 2.34+ where SIGSTKSZ is no longer a compile-time constant */
-+#ifndef SIGSTKSZ_CONST
-+# ifdef SIGSTKSZ
-+#  if __builtin_constant_p(SIGSTKSZ)
-+#   define SIGSTKSZ_CONST SIGSTKSZ
-+#  else
-+#   define SIGSTKSZ_CONST 16384
-+#  endif
-+# else
-+#  define SIGSTKSZ_CONST 16384
-+# endif
-+#endif
-+
-+#elif HAVE_LIBSIGSEGV && SIGSTKSZ_CONST < 16384
- 
- # include <sigsegv.h>
- 
-@@ -134,7 +144,7 @@
-   /* Leave a small gap between the stack heuristic and the start
-      of the data we return to the application, but keep the stack
-      on a page boundary.  */
--  char const *stack_base = stack_heuristic - SIGSTKSZ - page_size;
-+  char const *stack_base = stack_heuristic - SIGSTKSZ_CONST - page_size;
-   char const *stack_base_aligned = 
-     (char const *) ((uintptr_t) stack_base & ~(page_size - 1));
-   size_t stack_size = stack_heuristic - stack_base_aligned;
-@@ -228,7 +238,7 @@
- # if HAVE_LIBSIGSEGV
- 
-   c_stack_action = action ? action : null_action;
--  return c_stack_action (SIGSEGV, SIGSTKSZ < 16384 ? 16384 : SIGSTKSZ);
-+  return c_stack_action (SIGSEGV, SIGSTKSZ_CONST < 16384 ? 16384 : SIGSTKSZ_CONST);
- 
- # else
- 
-EOF
-          
-          echo "✓ Created proper unified diff patch for M4 SIGSTKSZ compatibility"
-          
-          # Apply fix to existing M4 build directory if it exists
-          if [ -d "output/build/host-m4-1.4.18" ]; then
-            echo "Applying SIGSTKSZ fix to existing M4 build directory..."
-            cd output/build/host-m4-1.4.18
-            
-            # Create backup and apply simple sed fix
-            if [ -f "lib/c-stack.c" ]; then
-              cp lib/c-stack.c lib/c-stack.c.backup 2>/dev/null || true
-              
-              echo "Applying SIGSTKSZ compatibility fix..."
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (SIGSTKSZ < 16384 || !__builtin_constant_p(SIGSTKSZ))/' lib/c-stack.c || {
-                echo "Sed failed, trying conservative fix..."
-                echo "#define SIGSTKSZ 16384" > lib/c-stack-fix.h
-                sed -i '1i#include "c-stack-fix.h"' lib/c-stack.c
-              }
-              
-              echo "✓ Applied SIGSTKSZ compatibility fix to existing M4 build"
-            fi
-            
-            cd ../../..
-          fi
-          
-          # Set M4-specific build environment variables
-          echo "=== Setting M4-specific build environment ==="
-          
-          cat > setup-m4-env.sh << 'ENV_EOF'
-#!/bin/bash
-export CPPFLAGS="${CPPFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export CFLAGS="${CFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCFLAGS="${HOSTCFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-export HOSTCXXFLAGS="${HOSTCXXFLAGS} -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-exec "$@"
-ENV_EOF
-          
-          chmod +x setup-m4-env.sh
-          
-          echo "✓ Applied M4 SIGSTKSZ fixes with proper patch format"
-          echo "  1. Created valid unified diff patch"
-          echo "  2. Fixed existing M4 build if present"
-          echo "  3. Created environment wrapper script"
         
-      - name: Debug buildroot state
-        run: |
-          echo "Buildroot directory contents:"
-          ls -la buildroot-2017.11.1/
-          echo "Checking for config files:"
-          ls -la unifios/bases/${{ matrix.base }}/ || echo "Base config directory not found"
-          echo "Checking versions file:"
-          cat unifios/bases/${{ matrix.base }}/versions.txt || echo "Versions file not found"
-          
       - name: Configure buildroot
         run: |
           cd buildroot-2017.11.1
@@ -1823,22 +1351,6 @@ ENV_EOF
           # Configure buildroot
           make olddefconfig
           
-      - name: Verify buildroot setup
-        run: |
-          cd buildroot-2017.11.1
-          echo "=== Buildroot Setup Verification ==="
-          echo "Working directory: $(pwd)"
-          echo "Output directory contents:"
-          ls -la output/ || echo "No output directory"
-          echo "BR External makefile:"
-          ls -la output/.br-external.mk && echo "Content:" && head -5 output/.br-external.mk || echo "File missing"
-          echo "Config file:"
-          ls -la .config || echo "No .config file"
-          echo "Kernel config:"
-          ls -la kernel-config || echo "No kernel-config file"
-          echo "Testing make dry-run:"
-          make -n help >/dev/null && echo "Make system functional" || echo "Make system has issues"
-          
       - name: Build wireguard module
         run: |
           mkdir -p modules
@@ -1867,25 +1379,19 @@ ENV_EOF
           
           cd buildroot-2017.11.1
           
-          # Set host compiler flags for DTC compatibility
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          # Set host compiler flags for compatibility
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
           
           # Calculate optimal parallel jobs
           NPROC=$(nproc)
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
           
-          (IFS=','
+          # Build for each version
+          IFS=','
           for ver in $versions; do
             echo "=== Building version $ver ==="
-            
-            # Verify buildroot state before build
-            if [ ! -f "output/.br-external.mk" ]; then
-              echo "Error: .br-external.mk missing before build"
-              ls -la output/
-              exit 1
-            fi
             
             # Check if clean target exists before using it
             if make -n wireguard-linux-compat-dirclean >/dev/null 2>&1; then
@@ -1898,7 +1404,7 @@ ENV_EOF
             echo "Setting kernel version to: $ver"
             sed -i -e '/CONFIG_LOCALVERSION=/s/.*/CONFIG_LOCALVERSION="'$ver'"/' kernel-config
             
-            # Build with detailed error reporting and DTC fixes
+            # Build with detailed error reporting and compatibility fixes
             echo "Starting build for version $ver..."
             if ! make wireguard-linux-compat-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"; then
               echo "=== BUILD FAILED for version $ver ==="
@@ -1906,13 +1412,6 @@ ENV_EOF
               ls -la output/build/ || echo "No build directory"
               echo "Checking for build logs:"
               find output -name "*.log" -exec echo "=== {} ===" \; -exec tail -20 {} \; 2>/dev/null || echo "No logs found"
-              echo "Makefile targets available:"
-              make help | grep wireguard || echo "No wireguard targets found"
-              # Show specific error details
-              if [ -f "output/build/build-time.log" ]; then
-                echo "=== Build time log ==="
-                tail -50 output/build/build-time.log
-              fi
               exit 1
             fi
             
@@ -1937,30 +1436,7 @@ ENV_EOF
             else
               echo "Warning: ip6table_raw.ko not found for version $ver"
             fi
-          done)
-          
-      - name: Verify built modules
-        run: |
-          echo "Built modules:"
-          ls -la modules/
-          # Check that we have at least some modules
-          if [ -z "$(ls modules/)" ]; then
-            echo "Error: No modules were built"
-            exit 1
-          fi
-          
-      - name: Enhanced error reporting
-        if: failure()
-        run: |
-          echo "=== UDM MODULE BUILD FAILURE ANALYSIS ==="
-          echo "Available disk space:"
-          df -h
-          echo "Memory usage:"
-          free -h
-          echo "Buildroot directory:"
-          ls -la buildroot-2017.11.1/output/build/ | head -10
-          echo "Configuration files:"
-          ls -la unifios/bases/${{ matrix.base }}/
+          done
           
       - name: Store modules
         uses: actions/upload-artifact@v4
@@ -2049,49 +1525,22 @@ ENV_EOF
           # Configure buildroot
           make olddefconfig
           
-      - name: Build WireGuard tools
+      - name: Build tools
         run: |
           cd buildroot-2017.11.1
-          # Set host compiler flags for DTC compatibility
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
+          # Set host compiler flags for compatibility
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
           
           # Calculate optimal parallel jobs
           NPROC=$(nproc)
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
           
-          make wireguard-tools-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/usr/bin/wg
-          
-      - name: Build bash
-        run: |
-          cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          make bash-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/bin/bash
-          
-      - name: Build resolvconf
-        run: |
-          cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          make openresolv-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/sbin/resolvconf
-          
-      - name: Build qrencode
-        run: |
-          cd buildroot-2017.11.1
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          make libqrencode-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS" # -> output/target/usr/bin/qrencode
+          make wireguard-tools-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
+          make bash-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
+          make openresolv-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
+          make libqrencode-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
           
       - name: Collect tools
         run: |
@@ -2130,13 +1579,13 @@ ENV_EOF
             echo "Warning: resolvconf.conf not found, continuing"
           fi
           
-          # Check for wg-quick in the build directory - try both locations
+          # Check for wg-quick in the build directory
           if [ -f "output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
             cp output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
           elif [ -f "output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
             cp output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
           else
-            echo "Warning: wg-quick not found, checking available directories..."
+            echo "Warning: wg-quick not found"
             find output/build -name "linux.bash" -type f || echo "No wg-quick script found"
           fi
           
@@ -2157,10 +1606,9 @@ ENV_EOF
       - name: Prepare
         run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
         
-      - name: Restore modules from all builds
+      - name: Download all modules
         run: |
           mkdir -p temp-modules
-          # Download each module artifact individually
           for base in udm-1.9.0-10 udm-1.10.0-8 udm-1.10.0-12 udm-se-2.2.4 udr-2.2.12; do
             echo "Downloading modules for $base"
           done
@@ -2202,7 +1650,6 @@ ENV_EOF
         
       - name: Consolidate modules
         run: |
-          # Move all modules to the package directory
           find temp-modules -name "*.ko" -exec cp {} package/wireguard/modules/ \;
           echo "Consolidated modules:"
           ls -la package/wireguard/modules/
