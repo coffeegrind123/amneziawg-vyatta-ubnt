@@ -1869,9 +1869,8 @@ jobs:
                 echo "⚠ SIGSTKSZ fix verification failed, applying alternative fix..."
                 
                 # Alternative fix: replace the problematic line entirely
-                sed -i '/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/c\
-#elif HAVE_LIBSIGSEGV && (!defined(SIGSTKSZ) || SIGSTKSZ < 16384)' "$M4_BUILD_DIR/lib/c-stack.c"
-                
+                sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (!defined(SIGSTKSZ) || SIGSTKSZ < 16384)/' "$M4_BUILD_DIR/lib/c-stack.c"
+
                 echo "✓ Applied alternative SIGSTKSZ fix"
               fi
               
