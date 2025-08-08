@@ -1857,26 +1857,29 @@ jobs:
               # Create backup
               cp "$M4_BUILD_DIR/lib/c-stack.c" "$M4_BUILD_DIR/lib/c-stack.c.backup"
               
-              # Apply the fix using sed
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& defined(SIGSTKSZ) \&\& (SIGSTKSZ == 0 || SIGSTKSZ < 16384)/' "$M4_BUILD_DIR/lib/c-stack.c"
+              # The problem line is: #elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
+              # We need to replace it with something that doesn't use SIGSTKSZ in preprocessor
               
-              echo "✓ Applied SIGSTKSZ fix to c-stack.c"
+              # Strategy 1: Simply enable the LIBSIGSEGV path unconditionally
+              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV/' "$M4_BUILD_DIR/lib/c-stack.c"
+              
+              echo "✓ Applied SIGSTKSZ fix to c-stack.c (removed SIGSTKSZ from preprocessor)"
               
               # Verify the fix was applied
-              if grep -q "defined(SIGSTKSZ)" "$M4_BUILD_DIR/lib/c-stack.c"; then
+              if grep -q "#elif HAVE_LIBSIGSEGV$" "$M4_BUILD_DIR/lib/c-stack.c"; then
                 echo "✓ SIGSTKSZ fix verification successful"
               else
-                echo "⚠ SIGSTKSZ fix verification failed, applying alternative fix..."
+                echo "⚠ Primary fix failed, trying alternative approach..."
                 
-                # Alternative fix: replace the problematic line entirely
-                sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& (!defined(SIGSTKSZ) || SIGSTKSZ < 16384)/' "$M4_BUILD_DIR/lib/c-stack.c"
-
-                echo "✓ Applied alternative SIGSTKSZ fix"
+                # Strategy 2: Comment out the problematic line entirely
+                sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/\/\* #elif HAVE_LIBSIGSEGV \&\& SIGSTKSZ < 16384 - disabled for glibc compatibility \*\//' "$M4_BUILD_DIR/lib/c-stack.c"
+                
+                echo "✓ Applied alternative SIGSTKSZ fix (commented out problematic line)"
               fi
               
-              # Show the fixed line for verification
-              echo "=== Fixed line in c-stack.c ==="
-              grep -n "HAVE_LIBSIGSEGV" "$M4_BUILD_DIR/lib/c-stack.c" || echo "Pattern not found"
+              # Show the result
+              echo "=== Lines around the fix in c-stack.c ==="
+              grep -n -A2 -B2 "HAVE_LIBSIGSEGV" "$M4_BUILD_DIR/lib/c-stack.c" || echo "Pattern not found"
               
             else
               echo "⚠ c-stack.c file not found at expected location"
