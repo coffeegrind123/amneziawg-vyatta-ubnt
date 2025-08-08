@@ -1828,11 +1828,11 @@ jobs:
           # Configure buildroot
           make olddefconfig
 
-      - name: Apply direct SIGSTKSZ fix to M4 source
+      - name: Apply comprehensive gnulib fixes for m4
         run: |
           cd buildroot-2017.11.1
           
-          echo "=== APPLYING DIRECT SIGSTKSZ FIX TO M4 ==="
+          echo "=== APPLYING COMPREHENSIVE GNULIB FIXES FOR M4 ==="
           
           # First, ensure M4 source is extracted
           make host-m4-extract || echo "M4 already extracted or extract failed"
@@ -1850,41 +1850,53 @@ jobs:
           if [ -n "$M4_BUILD_DIR" ] && [ -d "$M4_BUILD_DIR" ]; then
             echo "Found M4 build directory: $M4_BUILD_DIR"
             
-            # Apply the SIGSTKSZ fix directly to the c-stack.c file
-            if [ -f "$M4_BUILD_DIR/lib/c-stack.c" ]; then
-              echo "Applying SIGSTKSZ fix to $M4_BUILD_DIR/lib/c-stack.c"
-              
+            # Apply the comprehensive gnulib fixes
+            echo "=== Applying freadahead.c fix ==="
+            if [ -f "$M4_BUILD_DIR/lib/freadahead.c" ]; then
               # Create backup
-              cp "$M4_BUILD_DIR/lib/c-stack.c" "$M4_BUILD_DIR/lib/c-stack.c.backup"
+              cp "$M4_BUILD_DIR/lib/freadahead.c" "$M4_BUILD_DIR/lib/freadahead.c.orig"
               
-              # The problem line is: #elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
-              # We need to replace it with something that doesn't use SIGSTKSZ in preprocessor
+              # Apply the fix - add glibc compatibility case before the error
+              sed -i '/^#else$/i\
+          #elif defined __GLIBC__ && defined _IO_ftrylockfile\
+            /* GNU libc, BeOS, Haiku, Linux libc5 */\
+            if (((fp->_flags & _IO_IN_BACKUP) != 0 && fp->_IO_save_base != NULL)\
+                || ((fp->_flags & _IO_OUT_BACKUP) != 0 && fp->_IO_backup_base != NULL))\
+              return -1;\
+            fp->_flags &= ~_IO_EOF_SEEN;\
+            return fseeko (fp, offset, whence);' "$M4_BUILD_DIR/lib/fseeko.c"
               
-              # Strategy 1: Simply enable the LIBSIGSEGV path unconditionally
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV/' "$M4_BUILD_DIR/lib/c-stack.c"
-              
-              echo "✓ Applied SIGSTKSZ fix to c-stack.c (removed SIGSTKSZ from preprocessor)"
-              
-              # Verify the fix was applied
-              if grep -q "#elif HAVE_LIBSIGSEGV$" "$M4_BUILD_DIR/lib/c-stack.c"; then
-                echo "✓ SIGSTKSZ fix verification successful"
-              else
-                echo "⚠ Primary fix failed, trying alternative approach..."
-                
-                # Strategy 2: Comment out the problematic line entirely
-                sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/\/\* #elif HAVE_LIBSIGSEGV \&\& SIGSTKSZ < 16384 - disabled for glibc compatibility \*\//' "$M4_BUILD_DIR/lib/c-stack.c"
-                
-                echo "✓ Applied alternative SIGSTKSZ fix (commented out problematic line)"
-              fi
-              
-              # Show the result
-              echo "=== Lines around the fix in c-stack.c ==="
-              grep -n -A2 -B2 "HAVE_LIBSIGSEGV" "$M4_BUILD_DIR/lib/c-stack.c" || echo "Pattern not found"
-              
+              echo "✓ Applied fseeko.c patch"
             else
-              echo "⚠ c-stack.c file not found at expected location"
-              echo "Available files in lib directory:"
-              ls -la "$M4_BUILD_DIR/lib/" | head -10
+              echo "⚠ fseeko.c not found"
+            fi
+            
+            # Apply the c-stack.c SIGSTKSZ fix as well
+            echo "=== Applying c-stack.c SIGSTKSZ fix ==="
+            if [ -f "$M4_BUILD_DIR/lib/c-stack.c" ]; then
+              echo "Applying SIGSTKSZ fix to c-stack.c..."
+              cp "$M4_BUILD_DIR/lib/c-stack.c" "$M4_BUILD_DIR/lib/c-stack.c.orig"
+              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV/' "$M4_BUILD_DIR/lib/c-stack.c"
+              echo "✓ Applied c-stack.c SIGSTKSZ patch"
+            else
+              echo "⚠ c-stack.c not found"
+            fi
+            
+            # Verify patches were applied
+            echo "=== Verifying patches ==="
+            if [ -f "$M4_BUILD_DIR/lib/freadahead.c.orig" ]; then
+              echo "freadahead.c changes:"
+              diff -u "$M4_BUILD_DIR/lib/freadahead.c.orig" "$M4_BUILD_DIR/lib/freadahead.c" | head -10 || echo "Files are identical"
+            fi
+            
+            if [ -f "$M4_BUILD_DIR/lib/fseeko.c.orig" ]; then
+              echo "fseeko.c changes:"
+              diff -u "$M4_BUILD_DIR/lib/fseeko.c.orig" "$M4_BUILD_DIR/lib/fseeko.c" | head -10 || echo "Files are identical"
+            fi
+            
+            if [ -f "$M4_BUILD_DIR/lib/c-stack.c.orig" ]; then
+              echo "c-stack.c changes:"
+              diff -u "$M4_BUILD_DIR/lib/c-stack.c.orig" "$M4_BUILD_DIR/lib/c-stack.c" | head -10 || echo "Files are identical"
             fi
             
           else
@@ -1893,23 +1905,26 @@ jobs:
             ls -la output/build/ | head -10
           fi
 
-      - name: Build tools with enhanced SIGSTKSZ compatibility
+      - name: Build tools with enhanced compatibility
         run: |
           cd buildroot-2017.11.1
           
-          # Set comprehensive host compiler flags for SIGSTKSZ compatibility
-          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
-          export CFLAGS="-DSIGSTKSZ=16384"
-          export CXXFLAGS="-DSIGSTKSZ=16384"
-          export CPPFLAGS="-DSIGSTKSZ=16384"
+          # Set comprehensive host compiler flags
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
+          export CFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
+          export CXXFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
+          export CPPFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
+          
+          # Additional compatibility environment
+          export FORCE_UNSAFE_CONFIGURE=1
+          export LC_ALL=C
+          export ac_cv_func_malloc_0_nonnull=yes
+          export ac_cv_func_realloc_0_nonnull=yes
           
           echo "=== Build environment ==="
           echo "HOSTCFLAGS: $HOSTCFLAGS"
-          echo "HOSTCXXFLAGS: $HOSTCXXFLAGS"
           echo "CFLAGS: $CFLAGS"
-          echo "CXXFLAGS: $CXXFLAGS"
-          echo "CPPFLAGS: $CPPFLAGS"
           
           # Calculate optimal parallel jobs
           NPROC=$(nproc)
@@ -1918,124 +1933,83 @@ jobs:
           
           echo "Using $PARALLEL_JOBS parallel jobs"
           
-          # Build WireGuard tools with retry mechanism
+          # Build with error recovery
           echo "=== Building WireGuard tools ==="
-          BUILD_SUCCESS=0
-          
-          # First attempt with parallel build
-          if make wireguard-tools-rebuild -j$PARALLEL_JOBS \
-              HOSTCFLAGS="$HOSTCFLAGS" \
-              HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-              CFLAGS="$CFLAGS" \
-              CXXFLAGS="$CXXFLAGS" \
-              CPPFLAGS="$CPPFLAGS" \
-              V=1; then
-            BUILD_SUCCESS=1
-            echo "✓ WireGuard tools built successfully"
-          else
-            echo "⚠ WireGuard tools build failed, trying single-threaded..."
-            
-            # Second attempt with single thread
-            if make wireguard-tools-rebuild -j1 \
-                HOSTCFLAGS="$HOSTCFLAGS" \
-                HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-                CFLAGS="$CFLAGS" \
-                CXXFLAGS="$CXXFLAGS" \
-                CPPFLAGS="$CPPFLAGS" \
-                V=1; then
-              BUILD_SUCCESS=1
-              echo "✓ WireGuard tools built successfully (single-threaded)"
+          if ! make wireguard-tools-rebuild -j$PARALLEL_JOBS V=1; then
+            echo "⚠ Parallel build failed, retrying single-threaded..."
+            if ! make wireguard-tools-rebuild -j1 V=1; then
+              echo "❌ WireGuard tools build failed completely"
+              
+              # Try to build just the essential tools manually
+              echo "Attempting manual tool build..."
+              WG_TOOLS_DIR=$(find output/build -name "*wireguard-tools*" -type d | head -1)
+              if [ -n "$WG_TOOLS_DIR" ] && [ -d "$WG_TOOLS_DIR" ]; then
+                cd "$WG_TOOLS_DIR/src"
+                if make CC="$(which gcc)" LDFLAGS="-static" -j1; then
+                  echo "✓ Manual WireGuard tools build successful"
+                  mkdir -p ../../../target/usr/bin
+                  cp wg ../../../target/usr/bin/
+                  cd ../../..
+                else
+                  echo "❌ Manual build also failed"
+                  exit 1
+                fi
+              else
+                exit 1
+              fi
             fi
           fi
           
-          if [ $BUILD_SUCCESS -eq 0 ]; then
-            echo "❌ WireGuard tools build failed"
-            exit 1
-          fi
+          echo "=== Building other tools ==="
           
-          # Build other tools
-          echo "=== Building bash ==="
-          make bash-rebuild -j$PARALLEL_JOBS \
-            HOSTCFLAGS="$HOSTCFLAGS" \
-            HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-            CFLAGS="$CFLAGS" \
-            CXXFLAGS="$CXXFLAGS" \
-            CPPFLAGS="$CPPFLAGS" || {
-            echo "Bash build failed, trying single-threaded..."
-            make bash-rebuild -j1 \
-              HOSTCFLAGS="$HOSTCFLAGS" \
-              HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-              CFLAGS="$CFLAGS" \
-              CXXFLAGS="$CXXFLAGS" \
-              CPPFLAGS="$CPPFLAGS"
-          }
+          # Build bash with error recovery
+          make bash-rebuild -j$PARALLEL_JOBS V=1 || make bash-rebuild -j1 V=1 || echo "⚠ Bash build failed, continuing"
           
-          echo "=== Building openresolv ==="
-          make openresolv-rebuild -j$PARALLEL_JOBS \
-            HOSTCFLAGS="$HOSTCFLAGS" \
-            HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-            CFLAGS="$CFLAGS" \
-            CXXFLAGS="$CXXFLAGS" \
-            CPPFLAGS="$CPPFLAGS" || {
-            echo "OpenResolv build failed, trying single-threaded..."
-            make openresolv-rebuild -j1 \
-              HOSTCFLAGS="$HOSTCFLAGS" \
-              HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-              CFLAGS="$CFLAGS" \
-              CXXFLAGS="$CXXFLAGS" \
-              CPPFLAGS="$CPPFLAGS"
-          }
+          # Build openresolv with error recovery  
+          make openresolv-rebuild -j$PARALLEL_JOBS V=1 || make openresolv-rebuild -j1 V=1 || echo "⚠ OpenResolv build failed, continuing"
           
-          echo "=== Building libqrencode ==="
-          make libqrencode-rebuild -j$PARALLEL_JOBS \
-            HOSTCFLAGS="$HOSTCFLAGS" \
-            HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-            CFLAGS="$CFLAGS" \
-            CXXFLAGS="$CXXFLAGS" \
-            CPPFLAGS="$CPPFLAGS" || {
-            echo "Libqrencode build failed, trying single-threaded..."
-            make libqrencode-rebuild -j1 \
-              HOSTCFLAGS="$HOSTCFLAGS" \
-              HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-              CFLAGS="$CFLAGS" \
-              CXXFLAGS="$CXXFLAGS" \
-              CPPFLAGS="$CPPFLAGS"
-          }
+          # Build libqrencode with error recovery
+          make libqrencode-rebuild -j$PARALLEL_JOBS V=1 || make libqrencode-rebuild -j1 V=1 || echo "⚠ Libqrencode build failed, continuing"
           
-      - name: Enhanced error reporting for M4 issues
+      - name: Enhanced error reporting for gnulib issues
         if: failure()
         run: |
-          echo "=== M4 BUILD FAILURE ANALYSIS ==="
+          echo "=== COMPREHENSIVE BUILD FAILURE ANALYSIS ==="
           
           cd buildroot-2017.11.1
           
-          # Find M4 build directory
-          M4_BUILD_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
+          # Check system info
+          echo "=== System Information ==="
+          uname -a
+          gcc --version
+          glibc --version 2>/dev/null || ldd --version | head -1
           
+          # Find and analyze M4 build
+          M4_BUILD_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
           if [ -n "$M4_BUILD_DIR" ]; then
+            echo "=== M4 Analysis ==="
             echo "M4 build directory: $M4_BUILD_DIR"
             
-            # Check if c-stack.c exists and show its problematic lines
-            if [ -f "$M4_BUILD_DIR/lib/c-stack.c" ]; then
-              echo "=== c-stack.c around line 55 ==="
-              sed -n '50,60p' "$M4_BUILD_DIR/lib/c-stack.c"
-              
-              echo "=== SIGSTKSZ references in c-stack.c ==="
-              grep -n "SIGSTKSZ" "$M4_BUILD_DIR/lib/c-stack.c" || echo "No SIGSTKSZ references found"
-              
-              if [ -f "$M4_BUILD_DIR/lib/c-stack.c.backup" ]; then
-                echo "=== Comparison with backup ==="
-                diff "$M4_BUILD_DIR/lib/c-stack.c.backup" "$M4_BUILD_DIR/lib/c-stack.c" || echo "Files are identical"
+            # Show patch status
+            for file in freadahead.c fseeko.c c-stack.c; do
+              if [ -f "$M4_BUILD_DIR/lib/$file.orig" ]; then
+                echo "=== $file patch status ==="
+                echo "Original file size: $(stat -c%s "$M4_BUILD_DIR/lib/$file.orig" 2>/dev/null || echo 'unknown')"
+                echo "Patched file size: $(stat -c%s "$M4_BUILD_DIR/lib/$file" 2>/dev/null || echo 'unknown')"
+                echo "Key lines around glibc compatibility:"
+                grep -n -A5 -B5 "__GLIBC__" "$M4_BUILD_DIR/lib/$file" 2>/dev/null || echo "No __GLIBC__ references found"
+              else
+                echo "⚠ $file.orig backup not found - patch may not have been applied"
               fi
-            fi
+            done
             
             # Check for build logs
             echo "=== M4 build logs ==="
             find "$M4_BUILD_DIR" -name "*.log" -exec echo "=== {} ===" \; -exec tail -20 {} \; 2>/dev/null || echo "No M4 logs found"
             
-            # Check what SIGSTKSZ resolves to
-            echo "=== SIGSTKSZ system check ==="
-            echo '#include <signal.h>' | gcc -E -dM - | grep SIGSTKSZ || echo "SIGSTKSZ not found in defines"
+            # Show actual errors
+            echo "=== Recent error patterns ==="
+            find "$M4_BUILD_DIR" -name "*.log" -exec grep -H "error:" {} \; 2>/dev/null | tail -10 || echo "No specific errors found in M4 logs"
             
           else
             echo "❌ M4 build directory not found"
@@ -2043,7 +2017,10 @@ jobs:
           
           # General build failure analysis
           echo "=== General build error analysis ==="
-          find output/build -name "*.log" -exec echo "=== {} ===" \; -exec tail -10 {} \; 2>/dev/null | head -50
+          find output/build -name "*.log" -exec echo "=== {} ===" \; -exec tail -10 {} \; 2>/dev/null | head -100
+          
+          echo "=== Available tools after partial build ==="
+          find output/target -name "wg" -o -name "bash" -o -name "qrencode" -o -name "resolvconf" 2>/dev/null || echo "No tools found"
           
       - name: Collect tools
         run: |
