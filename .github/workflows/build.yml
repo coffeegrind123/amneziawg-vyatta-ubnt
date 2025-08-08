@@ -1827,61 +1827,284 @@ jobs:
           
           # Configure buildroot
           make olddefconfig
-          
-      - name: Build tools
+
+      - name: Apply direct SIGSTKSZ fix to M4 source
         run: |
           cd buildroot-2017.11.1
-          # Set host compiler flags for compatibility
-          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
-          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384"
+          
+          echo "=== APPLYING DIRECT SIGSTKSZ FIX TO M4 ==="
+          
+          # First, ensure M4 source is extracted
+          make host-m4-extract || echo "M4 already extracted or extract failed"
+          
+          # Find the M4 build directory
+          M4_BUILD_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
+          
+          if [ -z "$M4_BUILD_DIR" ]; then
+            echo "M4 build directory not found, trying to force extraction..."
+            # Force M4 extraction
+            make host-m4-source || echo "Could not extract M4 source"
+            M4_BUILD_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
+          fi
+          
+          if [ -n "$M4_BUILD_DIR" ] && [ -d "$M4_BUILD_DIR" ]; then
+            echo "Found M4 build directory: $M4_BUILD_DIR"
+            
+            # Apply the SIGSTKSZ fix directly to the c-stack.c file
+            if [ -f "$M4_BUILD_DIR/lib/c-stack.c" ]; then
+              echo "Applying SIGSTKSZ fix to $M4_BUILD_DIR/lib/c-stack.c"
+              
+              # Create backup
+              cp "$M4_BUILD_DIR/lib/c-stack.c" "$M4_BUILD_DIR/lib/c-stack.c.backup"
+              
+              # Apply the fix using sed
+              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV \&\& defined(SIGSTKSZ) \&\& (SIGSTKSZ == 0 || SIGSTKSZ < 16384)/' "$M4_BUILD_DIR/lib/c-stack.c"
+              
+              echo "✓ Applied SIGSTKSZ fix to c-stack.c"
+              
+              # Verify the fix was applied
+              if grep -q "defined(SIGSTKSZ)" "$M4_BUILD_DIR/lib/c-stack.c"; then
+                echo "✓ SIGSTKSZ fix verification successful"
+              else
+                echo "⚠ SIGSTKSZ fix verification failed, applying alternative fix..."
+                
+                # Alternative fix: replace the problematic line entirely
+                sed -i '/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/c\
+#elif HAVE_LIBSIGSEGV && (!defined(SIGSTKSZ) || SIGSTKSZ < 16384)' "$M4_BUILD_DIR/lib/c-stack.c"
+                
+                echo "✓ Applied alternative SIGSTKSZ fix"
+              fi
+              
+              # Show the fixed line for verification
+              echo "=== Fixed line in c-stack.c ==="
+              grep -n "HAVE_LIBSIGSEGV" "$M4_BUILD_DIR/lib/c-stack.c" || echo "Pattern not found"
+              
+            else
+              echo "⚠ c-stack.c file not found at expected location"
+              echo "Available files in lib directory:"
+              ls -la "$M4_BUILD_DIR/lib/" | head -10
+            fi
+            
+          else
+            echo "❌ Could not find M4 build directory"
+            echo "Available build directories:"
+            ls -la output/build/ | head -10
+          fi
+
+      - name: Build tools with enhanced SIGSTKSZ compatibility
+        run: |
+          cd buildroot-2017.11.1
+          
+          # Set comprehensive host compiler flags for SIGSTKSZ compatibility
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384"
+          export CFLAGS="-DSIGSTKSZ=16384"
+          export CXXFLAGS="-DSIGSTKSZ=16384"
+          export CPPFLAGS="-DSIGSTKSZ=16384"
+          
+          echo "=== Build environment ==="
+          echo "HOSTCFLAGS: $HOSTCFLAGS"
+          echo "HOSTCXXFLAGS: $HOSTCXXFLAGS"
+          echo "CFLAGS: $CFLAGS"
+          echo "CXXFLAGS: $CXXFLAGS"
+          echo "CPPFLAGS: $CPPFLAGS"
           
           # Calculate optimal parallel jobs
           NPROC=$(nproc)
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
           
-          make wireguard-tools-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
-          make bash-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
-          make openresolv-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
-          make libqrencode-rebuild -j$PARALLEL_JOBS HOSTCFLAGS="$HOSTCFLAGS"
+          echo "Using $PARALLEL_JOBS parallel jobs"
+          
+          # Build WireGuard tools with retry mechanism
+          echo "=== Building WireGuard tools ==="
+          BUILD_SUCCESS=0
+          
+          # First attempt with parallel build
+          if make wireguard-tools-rebuild -j$PARALLEL_JOBS \
+              HOSTCFLAGS="$HOSTCFLAGS" \
+              HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+              CFLAGS="$CFLAGS" \
+              CXXFLAGS="$CXXFLAGS" \
+              CPPFLAGS="$CPPFLAGS" \
+              V=1; then
+            BUILD_SUCCESS=1
+            echo "✓ WireGuard tools built successfully"
+          else
+            echo "⚠ WireGuard tools build failed, trying single-threaded..."
+            
+            # Second attempt with single thread
+            if make wireguard-tools-rebuild -j1 \
+                HOSTCFLAGS="$HOSTCFLAGS" \
+                HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+                CFLAGS="$CFLAGS" \
+                CXXFLAGS="$CXXFLAGS" \
+                CPPFLAGS="$CPPFLAGS" \
+                V=1; then
+              BUILD_SUCCESS=1
+              echo "✓ WireGuard tools built successfully (single-threaded)"
+            fi
+          fi
+          
+          if [ $BUILD_SUCCESS -eq 0 ]; then
+            echo "❌ WireGuard tools build failed"
+            exit 1
+          fi
+          
+          # Build other tools
+          echo "=== Building bash ==="
+          make bash-rebuild -j$PARALLEL_JOBS \
+            HOSTCFLAGS="$HOSTCFLAGS" \
+            HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+            CFLAGS="$CFLAGS" \
+            CXXFLAGS="$CXXFLAGS" \
+            CPPFLAGS="$CPPFLAGS" || {
+            echo "Bash build failed, trying single-threaded..."
+            make bash-rebuild -j1 \
+              HOSTCFLAGS="$HOSTCFLAGS" \
+              HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+              CFLAGS="$CFLAGS" \
+              CXXFLAGS="$CXXFLAGS" \
+              CPPFLAGS="$CPPFLAGS"
+          }
+          
+          echo "=== Building openresolv ==="
+          make openresolv-rebuild -j$PARALLEL_JOBS \
+            HOSTCFLAGS="$HOSTCFLAGS" \
+            HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+            CFLAGS="$CFLAGS" \
+            CXXFLAGS="$CXXFLAGS" \
+            CPPFLAGS="$CPPFLAGS" || {
+            echo "OpenResolv build failed, trying single-threaded..."
+            make openresolv-rebuild -j1 \
+              HOSTCFLAGS="$HOSTCFLAGS" \
+              HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+              CFLAGS="$CFLAGS" \
+              CXXFLAGS="$CXXFLAGS" \
+              CPPFLAGS="$CPPFLAGS"
+          }
+          
+          echo "=== Building libqrencode ==="
+          make libqrencode-rebuild -j$PARALLEL_JOBS \
+            HOSTCFLAGS="$HOSTCFLAGS" \
+            HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+            CFLAGS="$CFLAGS" \
+            CXXFLAGS="$CXXFLAGS" \
+            CPPFLAGS="$CPPFLAGS" || {
+            echo "Libqrencode build failed, trying single-threaded..."
+            make libqrencode-rebuild -j1 \
+              HOSTCFLAGS="$HOSTCFLAGS" \
+              HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+              CFLAGS="$CFLAGS" \
+              CXXFLAGS="$CXXFLAGS" \
+              CPPFLAGS="$CPPFLAGS"
+          }
+          
+      - name: Enhanced error reporting for M4 issues
+        if: failure()
+        run: |
+          echo "=== M4 BUILD FAILURE ANALYSIS ==="
+          
+          cd buildroot-2017.11.1
+          
+          # Find M4 build directory
+          M4_BUILD_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
+          
+          if [ -n "$M4_BUILD_DIR" ]; then
+            echo "M4 build directory: $M4_BUILD_DIR"
+            
+            # Check if c-stack.c exists and show its problematic lines
+            if [ -f "$M4_BUILD_DIR/lib/c-stack.c" ]; then
+              echo "=== c-stack.c around line 55 ==="
+              sed -n '50,60p' "$M4_BUILD_DIR/lib/c-stack.c"
+              
+              echo "=== SIGSTKSZ references in c-stack.c ==="
+              grep -n "SIGSTKSZ" "$M4_BUILD_DIR/lib/c-stack.c" || echo "No SIGSTKSZ references found"
+              
+              if [ -f "$M4_BUILD_DIR/lib/c-stack.c.backup" ]; then
+                echo "=== Comparison with backup ==="
+                diff "$M4_BUILD_DIR/lib/c-stack.c.backup" "$M4_BUILD_DIR/lib/c-stack.c" || echo "Files are identical"
+              fi
+            fi
+            
+            # Check for build logs
+            echo "=== M4 build logs ==="
+            find "$M4_BUILD_DIR" -name "*.log" -exec echo "=== {} ===" \; -exec tail -20 {} \; 2>/dev/null || echo "No M4 logs found"
+            
+            # Check what SIGSTKSZ resolves to
+            echo "=== SIGSTKSZ system check ==="
+            echo '#include <signal.h>' | gcc -E -dM - | grep SIGSTKSZ || echo "SIGSTKSZ not found in defines"
+            
+          else
+            echo "❌ M4 build directory not found"
+          fi
+          
+          # General build failure analysis
+          echo "=== General build error analysis ==="
+          find output/build -name "*.log" -exec echo "=== {} ===" \; -exec tail -10 {} \; 2>/dev/null | head -50
           
       - name: Collect tools
         run: |
           mkdir -p tools
           cd buildroot-2017.11.1
           
+          echo "=== Collecting built tools ==="
+          
           # Copy tools with error checking
           if [ -f "output/target/usr/bin/wg" ]; then
             cp output/target/usr/bin/wg ../tools/
+            echo "✓ wg tool collected"
           else
-            echo "Error: wg tool not found"
+            echo "❌ wg tool not found"
+            ls -la output/target/usr/bin/ | grep wg || echo "No wg files found"
             exit 1
           fi
           
           if [ -f "output/target/bin/bash" ]; then
             cp output/target/bin/bash ../tools/
+            echo "✓ bash collected"
           else
-            echo "Warning: bash not found, continuing"
+            echo "⚠ bash not found, continuing"
           fi
           
           if [ -f "output/target/usr/bin/qrencode" ]; then
             cp output/target/usr/bin/qrencode ../tools/
+            echo "✓ qrencode collected"
           else
-            echo "Warning: qrencode not found, continuing"
+            echo "⚠ qrencode not found, continuing"
           fi
           
           if [ -f "output/target/sbin/resolvconf" ]; then
             cp output/target/sbin/resolvconf ../tools/
+            echo "✓ resolvconf collected"
           else
-            echo "Warning: resolvconf not found, continuing"
+            echo "⚠ resolvconf not found, continuing"
           fi
           
           if [ -f "output/target/etc/resolvconf.conf" ]; then
             cp output/target/etc/resolvconf.conf ../tools/
+            echo "✓ resolvconf.conf collected"
           else
-            echo "Warning: resolvconf.conf not found, continuing"
+            echo "⚠ resolvconf.conf not found, continuing"
           fi
           
           # Check for wg-quick in the build directory - try both locations
           if [ -f "output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
-            cp output/build/
+            cp output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
+            echo "✓ wg-quick collected"
+          elif [ -f "output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
+            cp output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
+            echo "✓ wg-quick collected (amneziawg path)"
+          else
+            echo "⚠ wg-quick not found, checking available directories..."
+            find output/build -name "linux.bash" -type f || echo "No wg-quick script found"
+          fi
+          
+          echo "=== Final tools inventory ==="
+          ls -la ../tools/
+          
+      - name: Store tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: tools
+          path: tools
