@@ -11,7 +11,7 @@ wget -nv \
 	http://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.xz \
 	http://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.bz2 \
 	http://ftp.gnu.org/gnu/gmp/gmp-$GMP_VER.tar.xz \
-	http://isl.gforge.inria.fr/isl-$ISL_VER.tar.xz \
+	https://libisl.sourceforge.io/isl-$ISL_VER.tar.xz \
 	http://ftp.gnu.org/gnu/mpc/mpc-$MPC_VER.tar.gz \
 	http://ftp.gnu.org/gnu/mpfr/mpfr-$MPFR_VER.tar.xz
 
