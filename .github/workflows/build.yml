@@ -16,14 +16,17 @@ env:
   FIRMWARE_UGW: "4.4.50"
 
 jobs:
+  docker:
+    uses: ./.github/workflows/docker.yml
+    secrets: inherit
+
   headers:
+    needs: docker
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     container:
-      image: ubuntu:24.04
+      image: ghcr.io/${{ github.repository_owner }}/ubnt-build:${{ matrix.image }}
       env:
         CROSS: ${{ matrix.toolchain }}
-      options: --user root
 
     strategy:
       matrix:
@@ -41,501 +44,55 @@ jobs:
         include:
           - device: e50
             version: 1
-            toolchain: mipsel-linux-gnu-
-            image: mipsel-kernel
+            toolchain: mipsel-mtk-linux-
+            image: mtk-kernel
           - device: e50
             version: 2
             toolchain: mipsel-linux-gnu-
             image: mipsel-kernel
 
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Cache toolchain
-        uses: actions/cache@v4
-        with:
-          path: |
-            /usr/local/bin/mips*
-            /usr/lib/gcc-cross/
-          key: toolchain-${{ matrix.toolchain }}-${{ runner.os }}-v2
-          
-      - name: Install dependencies
+      - uses: actions/checkout@v2
+      - name: Build headers
         run: |
-          # Wait for any existing apt processes to complete
-          echo "Waiting for apt lock to be released..."
-          while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
-            echo "Waiting for other apt process to finish..."
-            sleep 5
-          done
-          
-          # Update package lists with retry
-          for i in {1..3}; do
-            if apt-get update; then
-              break
-            fi
-            echo "apt-get update failed, retrying in 10 seconds..."
-            sleep 10
-          done
-          
-          # Install packages with retry
-          for i in {1..3}; do
-            if apt-get install -y build-essential curl wget xz-utils ca-certificates jq patch bc cpio file python3; then
-              break
-            fi
-            echo "apt-get install failed, retrying in 10 seconds..."
-            sleep 10
-          done
-          
-      - name: Setup toolchain and build headers
-        run: |
-          echo "=== STARTING COMPLETE WORKFLOW ==="
-          echo "Device: ${{ matrix.device }}"
-          echo "Toolchain: ${{ matrix.toolchain }}"
-          echo "CROSS: $CROSS"
-          
-          # First, install the toolchain
-          echo "=== INSTALLING TOOLCHAIN ==="
-          if [ "${{ matrix.toolchain }}" = "mips64-octeon-linux-" ]; then
-            apt-get install -y gcc-mips64-linux-gnuabi64 g++-mips64-linux-gnuabi64 binutils-mips64-linux-gnuabi64 || sleep 5
-            mkdir -p /usr/local/bin
-            ln -sf /usr/bin/mips64-linux-gnuabi64-gcc /usr/local/bin/mips64-octeon-linux-gcc
-            ln -sf /usr/bin/mips64-linux-gnuabi64-g++ /usr/local/bin/mips64-octeon-linux-g++
-            ln -sf /usr/bin/mips64-linux-gnuabi64-ld /usr/local/bin/mips64-octeon-linux-ld
-            ln -sf /usr/bin/mips64-linux-gnuabi64-ar /usr/local/bin/mips64-octeon-linux-ar
-            ln -sf /usr/bin/mips64-linux-gnuabi64-strip /usr/local/bin/mips64-octeon-linux-strip
-            ln -sf /usr/bin/mips64-linux-gnuabi64-objcopy /usr/local/bin/mips64-octeon-linux-objcopy
-            ln -sf /usr/bin/mips64-linux-gnuabi64-objdump /usr/local/bin/mips64-octeon-linux-objdump
-            ln -sf /usr/bin/mips64-linux-gnuabi64-nm /usr/local/bin/mips64-octeon-linux-nm
-            ln -sf /usr/bin/mips64-linux-gnuabi64-ranlib /usr/local/bin/mips64-octeon-linux-ranlib
-            export PATH="/usr/local/bin:$PATH"
-            echo "Octeon toolchain installed and PATH updated"
-          elif [ "${{ matrix.toolchain }}" = "mipsel-linux-gnu-" ]; then
-            apt-get install -y gcc-mipsel-linux-gnu g++-mipsel-linux-gnu binutils-mipsel-linux-gnu || sleep 5
-            echo "MIPSEL toolchain installed"
-          fi
-          
-          # Verify toolchain works
-          echo "=== VERIFYING TOOLCHAIN ==="
-          echo "PATH: $PATH"
-          which ${CROSS}gcc
-          ${CROSS}gcc --version
-          
-          # Now do the build
-          echo "=== BUILDING HEADERS ==="
           mkdir /headers
-          
-          # Get the source URL and determine file extension
-          SOURCE_URL=$(jq -r '.["${{ matrix.device }}"]["${{ matrix.version }}"]' ci/ubnt-source.json)
-          echo "Source URL: $SOURCE_URL"
-          
-          # Check if URL is valid (not null)
-          if [ "$SOURCE_URL" = "null" ] || [ -z "$SOURCE_URL" ]; then
-            echo "ERROR: No source URL found for device ${{ matrix.device }} version ${{ matrix.version }}"
-            echo "Available combinations in ci/ubnt-source.json:"
-            jq -r 'to_entries[] | "\(.key): versions \(.value | keys | join(", "))"' ci/ubnt-source.json
-            exit 1
-          fi
-          
-          # Determine file extension and download appropriately
-          if [[ "$SOURCE_URL" == *.tbz2 ]]; then
-            echo "Downloading .tbz2 file..."
-            if ! curl -L -f -o src.tbz2 "$SOURCE_URL"; then
-              echo "ERROR: Failed to download $SOURCE_URL"
-              exit 1
-            fi
-            echo "Downloaded $(du -h src.tbz2 | cut -f1) file"
-            echo "Extracting .tbz2 file..."
-            tar -tf src.tbz2 | head -10 || echo "Could not list archive contents"
-            tar -xf src.tbz2 --wildcards 'source/kernel_*' --strip-components 1 2>/dev/null || \
-            tar -xf src.tbz2 --wildcards 'kernel_*' --strip-components 1 2>/dev/null || \
-            tar -xf src.tbz2 --strip-components 1
-          else
-            echo "Downloading .tar.bz2 file..."
-            if ! curl -L -f -o src.tar.bz2 "$SOURCE_URL"; then
-              echo "ERROR: Failed to download $SOURCE_URL"
-              exit 1
-            fi
-            echo "Downloaded $(du -h src.tar.bz2 | cut -f1) file"
-            echo "Extracting .tar.bz2 file..."
-            tar -tf src.tar.bz2 | head -10 || echo "Could not list archive contents"
-            tar -xf src.tar.bz2 --wildcards 'source/kernel_*' --strip-components 1 2>/dev/null || \
-            tar -xf src.tar.bz2 --wildcards 'kernel_*' --strip-components 1 2>/dev/null || \
-            tar -xf src.tar.bz2 --strip-components 1
-          fi
-          
-          # Find and extract kernel source
-          echo "=== Files present after extraction ==="
-          ls -la | head -10
-          
-          if ls kernel_* 1> /dev/null 2>&1; then
-            echo "Found kernel archive(s): $(ls kernel_*)"
-            mv kernel_* kernel.tar.gz
-            echo "Extracting kernel source..."
-            tar -xf kernel.tar.gz --strip-components 1
-          else
-            echo "Warning: No kernel_* archive found, assuming kernel source is already extracted"
-          fi
-          
-          echo "=== Final directory structure ==="
-          ls -la | head -10
-          echo "Looking for Makefile..."
-          if [ -f "Makefile" ]; then
-            echo "✓ Makefile found"
-            grep -E "^(VERSION|PATCHLEVEL|SUBLEVEL)" Makefile | head -3 || echo "No version info in Makefile"
-          else
-            echo "✗ Makefile not found"
-          fi
-          
-          # Enhanced DTC compilation fix for newer flex/bison versions
-          echo "=== APPLYING COMPREHENSIVE DTC FIX ==="
-          
-          # Set compiler flags for host compilation with enhanced error handling
-          export HOSTCFLAGS="-fcommon -Wno-error"
-          export HOSTCXXFLAGS="-fcommon -Wno-error"
-          
-          # Preemptively fix DTC issues before they occur
-          echo "Pre-applying DTC fixes..."
-          find . -name "dtc-lexer.lex.c" -exec sed -i '/^YYLTYPE yylloc;/d' {} \; 2>/dev/null || true
-          find . -name "dtc-parser.tab.c" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' {} \; 2>/dev/null || true
-          
-          # Remove any pre-generated DTC files to force clean regeneration
-          echo "Cleaning pre-generated DTC files..."
-          rm -f scripts/dtc/dtc-lexer.lex.c scripts/dtc/dtc-parser.tab.c scripts/dtc/dtc-parser.tab.h 2>/dev/null || true
-          
-          # Patch DTC Makefile to add -fcommon flag
-          if [ -f scripts/dtc/Makefile ]; then
-            echo "Patching DTC Makefile for yylloc fix..."
-            if ! grep -q "fcommon" scripts/dtc/Makefile; then
-              # Add -fcommon flags for DTC compilation
-              sed -i '/HOSTCFLAGS_DTC.*:=/a # Fix yylloc multiple definition issue\nHOSTCFLAGS_dtc-lexer.lex.o := $(HOSTCFLAGS_DTC) -fcommon -Wno-error\nHOSTCFLAGS_dtc-parser.tab.o := $(HOSTCFLAGS_DTC) -fcommon -Wno-error' scripts/dtc/Makefile
-              echo "DTC Makefile patched successfully"
-            else
-              echo "DTC Makefile already contains fcommon flags"
-            fi
-          fi
-          
-          # Create a function to apply post-generation fixes
-          apply_dtc_post_fix() {
-            if [ -f scripts/dtc/dtc-lexer.lex.c ]; then
-              echo "Removing duplicate yylloc declarations from lexer..."
-              sed -i '/^YYLTYPE yylloc;/d' scripts/dtc/dtc-lexer.lex.c
-            fi
-            
-            if [ -f scripts/dtc/dtc-parser.tab.c ]; then
-              echo "Making yylloc extern in parser..."
-              sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-parser.tab.c
-            fi
-          }
-          
-          # Configure the kernel
-          echo "=== CONFIGURING KERNEL ==="
-          
-          # Determine the correct defconfig based on device and version
-          if [[ "${{ matrix.device }}" == "ugw"* ]]; then
-            # UGW devices use different defconfig naming
-            echo "Configuring for UGW device: ${{ matrix.device }}"
-            # For UGW devices, try common defconfig names
-            if [ -f "arch/mips/configs/ubnt_${{ matrix.device }}_defconfig" ]; then
-              make ARCH=mips ubnt_${{ matrix.device }}_defconfig
-            elif [ -f "arch/mips/configs/cavium_octeon_defconfig" ]; then
-              make ARCH=mips cavium_octeon_defconfig
-            elif [ -f "arch/mips/configs/octeon_defconfig" ]; then
-              make ARCH=mips octeon_defconfig
-            else
-              echo "Using default MIPS config for UGW device"
-              make ARCH=mips defconfig
-            fi
-          elif [ ${{ matrix.version }} -ne 1 ]; then 
-            # EdgeRouter v2 devices
-            echo "Configuring for EdgeRouter v2: ${{ matrix.device }}"
-            make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig
-          else
-            # EdgeRouter v1 devices - try to find appropriate defconfig
-            echo "Configuring for EdgeRouter v1: ${{ matrix.device }}"
-            if [ -f "arch/mips/configs/ubnt_er_${{ matrix.device }}_defconfig" ]; then
-              make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig
-            elif [ -f "arch/mips/configs/cavium_octeon_defconfig" ]; then
-              make ARCH=mips cavium_octeon_defconfig
-            else
-              echo "Using default MIPS config for EdgeRouter v1"
-              make ARCH=mips defconfig
-            fi
-          fi
-          
-          # Calculate optimal parallel jobs (75% of available cores)
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          echo "Using $PARALLEL_JOBS parallel jobs (from $NPROC cores)"
-          
-          # First attempt at prepare - might generate DTC files
-          echo "=== PREPARING KERNEL BUILD ==="
-          make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare || {
-            echo "First prepare failed, applying post-generation DTC fixes..."
-            apply_dtc_post_fix
-            echo "Retrying prepare after DTC fixes..."
-            make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare
-          }
-          
-          # Modules prepare
-          echo "=== PREPARING MODULES ==="
-          make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules_prepare || {
-            echo "Modules prepare failed, applying DTC fixes again..."
-            apply_dtc_post_fix
-            echo "Retrying modules_prepare after DTC fixes..."
-            make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules_prepare
-          }
-          
-          # Build modules
-          echo "=== BUILDING MODULES ==="
-          make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules || {
-            echo "Modules build failed, applying final DTC fixes..."
-            apply_dtc_post_fix
-            echo "Retrying modules build after DTC fixes..."
-            make -j$PARALLEL_JOBS ARCH=mips CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules
-          }
-          
-          # Copy build artifacts and prepare for output build
+          curl -o src.tar.bz2 $(jq -r '.["${{ matrix.device }}"]["${{ matrix.version }}"]' ci/ubnt-source.json)
+          tar -xf src.tar.bz2 --wildcards 'source/kernel_*' --strip-components 1
+          mv kernel_* kernel.tar.gz
+          tar -xf kernel.tar.gz --strip-components 1
+          if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
+          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
+          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
           cp Module.symvers .config /headers
           make mrproper
-          
-          # Build output headers with proper kernel build system
-          echo "=== BUILDING OUTPUT HEADERS ==="
-          
-          # Run the configuration and preparation steps in the output directory
-          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" oldconfig
-          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" prepare
-          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" modules_prepare  
-          make -j$PARALLEL_JOBS ARCH=mips O=/headers CROSS_COMPILE=$CROSS HOSTCFLAGS="$HOSTCFLAGS" scripts
-          
-          echo "=== VERIFYING GENERATED CONFIG FILES ==="
-          if [ -f "/headers/include/generated/autoconf.h" ]; then
-            echo "✓ autoconf.h generated successfully"
-          else
-            echo "✗ autoconf.h missing"
-          fi
-          
-          if [ -f "/headers/include/config/auto.conf" ]; then
-            echo "✓ auto.conf generated successfully"  
-          else
-            echo "✗ auto.conf missing"
-          fi
-          rm -f /headers/source /headers/build 2>/dev/null || true
-          
-          # Create kernel source directory and symlinks for module building
-          echo "Creating kernel source structure..."
-          rm -rf /headers/source 2>/dev/null || true
-          mkdir -p /headers/source
-          
-          # Copy kernel source files (avoid copying headers to prevent recursion)
-          for item in *; do
-            if [ "$item" != "headers" ] && [ -e "$item" ]; then
-              cp -r "$item" /headers/source/ 2>/dev/null || true
-            fi
-          done
-         
-          # Create essential symlinks 
-          cd /headers
-          rm -f build 2>/dev/null || true
-          ln -sf source build
-          
-          # Always create a proper kernel build Makefile for module compilation
-          echo "Creating kernel module build Makefile..."
-          # Get version info from source Makefile if available
-          if [ -f "source/Makefile" ]; then
-            VERSION=$(grep "^VERSION" source/Makefile 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "3")
-            PATCHLEVEL=$(grep "^PATCHLEVEL" source/Makefile 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "10")
-            SUBLEVEL=$(grep "^SUBLEVEL" source/Makefile 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "107")
-            EXTRAVERSION=$(grep "^EXTRAVERSION" source/Makefile 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "")
-            echo "Using version info from source Makefile: $VERSION.$PATCHLEVEL.$SUBLEVEL$EXTRAVERSION"
-          else
-            VERSION="3"
-            PATCHLEVEL="10" 
-            SUBLEVEL="107"
-            EXTRAVERSION=""
-            echo "Using default version info: $VERSION.$PATCHLEVEL.$SUBLEVEL"
-          fi
-          
-          # Create Makefile with proper kernel module build support using printf to avoid YAML issues
-          printf '# Kernel module build Makefile for WireGuard\n' > Makefile
-          printf 'VERSION = %s\n' "$VERSION" >> Makefile
-          printf 'PATCHLEVEL = %s\n' "$PATCHLEVEL" >> Makefile
-          printf 'SUBLEVEL = %s\n' "$SUBLEVEL" >> Makefile
-          printf 'EXTRAVERSION = %s\n' "$EXTRAVERSION" >> Makefile
-          printf '\n' >> Makefile
-          printf 'KERNELRELEASE = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)\n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Default architecture and cross-compiler (can be overridden)\n' >> Makefile
-          printf 'ARCH ?= mips\n' >> Makefile
-          printf 'CROSS_COMPILE ?= \n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Important build variables\n' >> Makefile
-          printf 'export ARCH CROSS_COMPILE\n' >> Makefile
-          printf 'export srctree := $(CURDIR)\n' >> Makefile
-          printf 'export objtree := $(CURDIR)\n' >> Makefile
-          printf 'export src := $(srctree)\n' >> Makefile
-          printf 'export obj := $(objtree)\n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Kernel configuration\n' >> Makefile
-          printf 'CONFIG_MODULES = y\n' >> Makefile
-          printf 'CONFIG_MODULE_UNLOAD = y\n' >> Makefile
-          printf 'export CONFIG_MODULES CONFIG_MODULE_UNLOAD\n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Default target\n' >> Makefile
-          printf '.PHONY: all modules modules_prepare clean help\n' >> Makefile
-          printf 'all: modules\n' >> Makefile
-          printf '\n' >> Makefile
-          printf '# Main modules target - the one that was missing\n' >> Makefile
-          printf 'modules:\n' >> Makefile
-          printf '\t@echo "Building kernel modules..."\n' >> Makefile
-          printf '\t@echo "ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)"\n' >> Makefile
-          printf '\t@echo "KERNELRELEASE=$(KERNELRELEASE)"\n' >> Makefile
-          printf '\t@if [ -f scripts/Makefile.build ]; then \\\n' >> Makefile
-          printf '\t\t$(MAKE) -f $(srctree)/Makefile $(if $(M),M=$(M),) modules; \\\n' >> Makefile
-          printf '\telse \\\n' >> Makefile
-          printf '\t\techo "Using simplified module build..."; \\\n' >> Makefile
-          printf '\t\tif [ -n "$(M)" ]; then \\\n' >> Makefile
-          printf '\t\t\t$(MAKE) -C $(M) KERNELDIR=$(CURDIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) module; \\\n' >> Makefile
-          printf '\t\telse \\\n' >> Makefile
-          printf '\t\t\techo "No module directory specified (M= parameter required)"; \\\n' >> Makefile
-          printf '\t\t\texit 1; \\\n' >> Makefile
-          printf '\t\tfi; \\\n' >> Makefile
-          printf '\tfi\n' >> Makefile
-          printf '\n' >> Makefile
-          printf 'modules_prepare:\n' >> Makefile
-          printf '\t@echo "Module preparation completed"\n' >> Makefile
-          printf '\n' >> Makefile
-          printf 'modules_install:\n' >> Makefile
-          printf '\t@echo "Module install not implemented"\n' >> Makefile
-          printf '\n' >> Makefile
-          printf 'clean:\n' >> Makefile
-          printf '\t@find . -name "*.ko" -o -name "*.o" -o -name "*.mod.c" -o -name "*.mod.o" | xargs rm -f 2>/dev/null || true\n' >> Makefile
-          printf '\t@rm -f modules.order Module.symvers 2>/dev/null || true\n' >> Makefile
-          printf '\n' >> Makefile
-          printf 'help:\n' >> Makefile
-          printf '\t@echo "Available targets:"\n' >> Makefile
-          printf '\t@echo "  all         - Build all modules (default)"\n' >> Makefile
-          printf '\t@echo "  modules     - Build kernel modules"\n' >> Makefile
-          printf '\t@echo "  clean       - Clean build artifacts"\n' >> Makefile
-          printf '\t@echo "  help        - Show this help"\n' >> Makefile
-          printf '\t@echo ""\n' >> Makefile
-          printf '\t@echo "Usage: make modules M=/path/to/module/source ARCH=mips CROSS_COMPILE=toolchain-prefix-"\n' >> Makefile
-          
-          # Ensure essential directories are present in headers (they should be from the O= build)
-          echo "Verifying essential kernel build files are present..."
-          
-          # The O= build should have already created scripts and include, just verify
-          if [ ! -d "/headers/scripts" ]; then
-            echo "Warning: scripts directory missing, copying from source"
-            cp -a source/scripts "/headers/" 2>/dev/null || echo "Could not copy scripts directory"
-          fi
-          
-          if [ ! -d "/headers/include" ]; then
-            echo "Warning: include directory missing, copying from source"  
-            cp -a source/include "/headers/" 2>/dev/null || echo "Could not copy include directory"
-          fi
-          
-          echo "Essential kernel build environment ready"
-          
-          # Create the tar file in the workspace root for artifact upload
-          cd "$GITHUB_WORKSPACE"
+          make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
+          rm /headers/source /headers/Makefile
+          # This is from alpine linux who in turn got it from
+          # http://kernel.ubuntu.com/git/ubuntu/ubuntu-zesty.git/tree/debian/rules.d/3-binary-indep.mk
+          find . -path './include/*' -prune -o -path './scripts/*' -prune -o -type f \( -name 'Makefile*' -o -name 'Kconfig*' -o -name 'Kbuild*' -o -name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) -print | cpio -pdm "/headers"
+          cp -a scripts include "/headers"
+          find $(find arch -name include -type d -print) -type f | cpio -pdm "/headers"
           tar -cf headers.tar /headers/
-          
-          echo "=== VERIFYING ARTIFACT LOCATION ==="
-          echo "Current directory: $(pwd)"
-          echo "Headers tar file: $(ls -lh headers.tar 2>/dev/null || echo 'NOT FOUND')"
-          
-          echo "=== HEADERS BUILD COMPLETED SUCCESSFULLY ==="
-          
-      - name: Enhanced error reporting
-        if: failure()
-        run: |
-          echo "=== BUILD FAILURE ANALYSIS ==="
-          echo "Available disk space:"
-          df -h
-          echo "Memory usage:"
-          free -h
-          echo "Build directory contents:"
-          find . -name "*.log" -exec echo "=== {} ===" \; -exec tail -50 {} \; 2>/dev/null || echo "No logs found"
-          echo "DTC related files:"
-          find . -name "*dtc*" -type f | head -10
-          
       - name: Store headers
         uses: actions/upload-artifact@v4
         with:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
           path: headers.tar
 
-      - name: Debug headers output
-        run: |
-          echo "=== HEADERS DEBUG ==="
-          ls -la /headers/
-          find /headers -name "Makefile*" -o -name "*.symvers" -o -name ".config" | head -10
-          if [ -f "/headers/Makefile" ]; then
-            echo "Makefile found, checking version info:"
-            grep -E "^(VERSION|PATCHLEVEL|SUBLEVEL)" /headers/Makefile || echo "No version info"
-          fi
-          echo "=== ARTIFACT VERIFICATION ==="
-          echo "Current working directory: $(pwd)"
-          if [ -f "headers.tar" ]; then
-            echo "✓ headers.tar found: $(ls -lh headers.tar)"
-          else
-            echo "✗ headers.tar NOT found in $(pwd)"
-            echo "Files in current directory:"
-            ls -la
-          fi
-          echo "=== KERNEL CONFIG FILES VERIFICATION ==="
-          if [ -f "/headers/include/generated/autoconf.h" ]; then
-            echo "✓ autoconf.h present in headers"
-          else
-            echo "✗ autoconf.h missing from headers"
-          fi
-          if [ -f "/headers/include/config/auto.conf" ]; then
-            echo "✓ auto.conf present in headers"
-          else
-            echo "✗ auto.conf missing from headers"
-          fi
-
   module-prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
     container:
-      image: ubuntu:24.04
+      image: buildpack-deps:focal
 
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y curl wget ca-certificates patch file
-          
+      - uses: actions/checkout@v2
       - name: Download module source
         run: |
-          # Download with retry logic
-          for attempt in {1..3}; do
-            if curl -L -o wireguard-linux-compat-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz; then
-              break
-            fi
-            echo "Download attempt $attempt failed, retrying..."
-            sleep 5
-          done
-          
-          tar -xf wireguard-linux-compat-$MODULE_VERSION.tar.gz --one-top-level=module --strip-components=1
+          curl -L -o amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
+          tar -xf amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz --one-top-level=module --strip-components=1
           cd module
           sed -i 's/ --dirty//g' src/Makefile
           patch -p1 < ../siphash_no_fallthrough.patch
-          
-          cd src
-          if [ -f "../scripts/version.sh" ]; then
-            ../scripts/version.sh > version.h
-          fi
-          
-          
-          echo "=== Module source structure ==="
-          find . -name "Makefile*" -o -name "*.mk" | head -10
-          ls -la .
-          
       - name: Upload module source
         uses: actions/upload-artifact@v4
         with:
@@ -543,12 +100,10 @@ jobs:
           path: module
 
   module:
-    needs: [module-prepare, headers]
+    needs: [docker, module-prepare, headers]
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
     container:
-      image: ubuntu:24.04
-      options: --user root
+      image: ghcr.io/${{ github.repository_owner }}/ubnt-build:${{ matrix.image }}
 
     strategy:
       matrix:
@@ -574,510 +129,22 @@ jobs:
             image: mtk-kernel
 
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install dependencies and setup toolchain
-        run: |
-          apt-get update
-          apt-get install -y build-essential patch bc file python3
-          
-          # Install and setup cross-compilation toolchain  
-          echo "Setting up toolchain: ${{ matrix.toolchain }}"
-          
-          if [ "${{ matrix.toolchain }}" = "mips64-octeon-linux-" ]; then
-            apt-get install -y gcc-mips64-linux-gnuabi64 g++-mips64-linux-gnuabi64 binutils-mips64-linux-gnuabi64
-            mkdir -p /usr/local/bin
-            ln -sf /usr/bin/mips64-linux-gnuabi64-gcc /usr/local/bin/mips64-octeon-linux-gcc
-            ln -sf /usr/bin/mips64-linux-gnuabi64-g++ /usr/local/bin/mips64-octeon-linux-g++
-            ln -sf /usr/bin/mips64-linux-gnuabi64-ld /usr/local/bin/mips64-octeon-linux-ld
-            ln -sf /usr/bin/mips64-linux-gnuabi64-ar /usr/local/bin/mips64-octeon-linux-ar
-            ln -sf /usr/bin/mips64-linux-gnuabi64-strip /usr/local/bin/mips64-octeon-linux-strip
-            ln -sf /usr/bin/mips64-linux-gnuabi64-objcopy /usr/local/bin/mips64-octeon-linux-objcopy
-            ln -sf /usr/bin/mips64-linux-gnuabi64-objdump /usr/local/bin/mips64-octeon-linux-objdump
-            ln -sf /usr/bin/mips64-linux-gnuabi64-nm /usr/local/bin/mips64-octeon-linux-nm
-            ln -sf /usr/bin/mips64-linux-gnuabi64-ranlib /usr/local/bin/mips64-octeon-linux-ranlib
-            export PATH="/usr/local/bin:$PATH"
-            echo "/usr/local/bin" >> $GITHUB_PATH
-          elif [ "${{ matrix.toolchain }}" = "mipsel-mtk-linux-" ]; then
-            apt-get install -y gcc-mipsel-linux-gnu g++-mipsel-linux-gnu binutils-mipsel-linux-gnu
-            mkdir -p /usr/local/bin
-            ln -sf /usr/bin/mipsel-linux-gnu-gcc /usr/local/bin/mipsel-mtk-linux-gcc
-            ln -sf /usr/bin/mipsel-linux-gnu-g++ /usr/local/bin/mipsel-mtk-linux-g++
-            ln -sf /usr/bin/mipsel-linux-gnu-ld /usr/local/bin/mipsel-mtk-linux-ld
-            ln -sf /usr/bin/mipsel-linux-gnu-ar /usr/local/bin/mipsel-mtk-linux-ar
-            ln -sf /usr/bin/mipsel-linux-gnu-strip /usr/local/bin/mipsel-mtk-linux-strip
-            ln -sf /usr/bin/mipsel-linux-gnu-objcopy /usr/local/bin/mipsel-mtk-linux-objcopy
-            ln -sf /usr/bin/mipsel-linux-gnu-objdump /usr/local/bin/mipsel-mtk-linux-objdump
-            ln -sf /usr/bin/mipsel-linux-gnu-nm /usr/local/bin/mipsel-mtk-linux-nm
-            ln -sf /usr/bin/mipsel-linux-gnu-ranlib /usr/local/bin/mipsel-mtk-linux-ranlib
-            export PATH="/usr/local/bin:$PATH"
-            echo "/usr/local/bin" >> $GITHUB_PATH
-          fi
-          
-          # Verify toolchain installation
-          echo "=== Verifying toolchain installation ==="
-          which ${{ matrix.toolchain }}gcc || echo "Compiler not found in PATH"
-          ls -la /usr/local/bin/${{ matrix.toolchain }}* || echo "No toolchain files found"
-          ${{ matrix.toolchain }}gcc --version || echo "Compiler version check failed"
-          
+      - uses: actions/checkout@v2
       - name: Restore module source
         uses: actions/download-artifact@v4
         with:
           name: module-src
           path: module
-          
       - name: Restore headers
         uses: actions/download-artifact@v4
         with:
           name: headers-${{ matrix.device }}-${{ matrix.version }}
-          
-      - name: Detect kernel version
-        run: |
-          tar -xf headers.tar
-          # Enhanced kernel version detection
-          KERNEL_VERSION=$(
-            grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" $GITHUB_WORKSPACE/headers/Makefile | 
-            head -3 | cut -d'=' -f2 | tr -d ' ' | paste -sd '.' ||
-            grep "LINUX_VERSION_CODE" $GITHUB_WORKSPACE/headers/include/generated/uapi/linux/version.h 2>/dev/null |
-            awk '{print $3}' | python3 -c 'import sys; code=int(sys.stdin.read().strip()); print(f"{(code>>16)&0xFF}.{(code>>8)&0xFF}.{code&0xFF}")' || echo "3.10.107"
-          )
-          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
-          echo "Detected kernel version: $KERNEL_VERSION"
-          
-      - name: Apply AmnesiaWG compatibility fixes
-        run: |
-          export PATH="/usr/local/bin:$PATH"
-          cd module/src
-          
-          echo "=== APPLYING AMNEZIAWG COMPATIBILITY FIXES FOR KERNEL $KERNEL_VERSION ==="
-          
-          # Create a backup of netlink.c before modifications
-          cp netlink.c netlink.c.backup
-          
-          # 1. Fix get_random_u8() compatibility in netlink.c
-          echo "Fixing get_random_u8() usage..."
-          if grep -q "get_random_u8()" netlink.c; then
-              sed -i 's/get_random_u8()/((u8)(get_random_u32() \& 0xFF))/g' netlink.c
-              echo "✓ Fixed get_random_u8() calls"
-          fi
-          
-          # 2. Add compatibility definitions to compat.h
-          echo "Adding compatibility definitions..."
-          if ! grep -q "get_random_u8" compat/compat.h; then
-              printf '\n/* get_random_u8 compatibility for older kernels */\n' >> compat/compat.h
-              printf '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)\n' >> compat/compat.h
-              printf 'static inline u8 get_random_u8(void)\n' >> compat/compat.h
-              printf '{\n' >> compat/compat.h
-              printf '    u32 random_val = get_random_u32();\n' >> compat/compat.h
-              printf '    return (u8)(random_val & 0xFF);\n' >> compat/compat.h
-              printf '}\n' >> compat/compat.h
-              printf '#endif\n' >> compat/compat.h
-              echo "✓ Added get_random_u8 compatibility wrapper"
-          fi
-          
-          # 3. COMPREHENSIVE NETLINK COMPATIBILITY FIXES
-          echo "=== Applying comprehensive netlink.c fixes ==="
-          
-          # Create a Python script to safely fix the netlink.c preprocessor issues
-          cat > fix_netlink.py << 'PYTHON_SCRIPT_END'
-          #!/usr/bin/env python3
-          import re
-          import sys
-          
-          def fix_netlink_file(filename):
-              """Fix preprocessor issues in netlink.c"""
-              print(f"Processing {filename}...")
-              
-              with open(filename, 'r') as f:
-                  content = f.read()
-              
-              lines = content.splitlines()
-              fixed_lines = []
-              
-              # Track conditional compilation state
-              if_stack = []
-              in_genl_family = False
-              
-              i = 0
-              while i < len(lines):
-                  line = lines[i].rstrip()
-                  
-                  # Check for orphaned #else directives
-                  if line.strip() == '#else':
-                      # Look for context to determine if this #else is orphaned
-                      if not if_stack:
-                          print(f"Found orphaned #else at line {i+1}, commenting it out")
-                          fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
-                          i += 1
-                          continue
-                  
-                  # Track #if/#endif pairs
-                  if line.strip().startswith('#if'):
-                      if_stack.append(i)
-                  elif line.strip().startswith('#endif'):
-                      if if_stack:
-                          if_stack.pop()
-                  elif line.strip().startswith('#else'):
-                      if not if_stack:
-                          # This is an orphaned #else
-                          print(f"Orphaned #else found at line {i+1}")
-                          fixed_lines.append(f'// FIXED: removed orphaned #else (was line {i+1})')
-                          i += 1
-                          continue
-                  
-                  # Handle genl_family structure modifications more carefully
-                  if '.mcgrps = wg_genl_mcgrps,' in line:
-                      in_genl_family = True
-                      # Add proper conditional compilation
-                      fixed_lines.append('#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)')
-                      fixed_lines.append(line)
-                  elif in_genl_family and '.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)' in line:
-                      fixed_lines.append(line)
-                      fixed_lines.append('#else')
-                      fixed_lines.append('\t/* .mcgrps and .n_mcgrps not available in older kernels */')
-                      fixed_lines.append('#endif')
-                      in_genl_family = False
-                  else:
-                      fixed_lines.append(line)
-                  
-                  i += 1
-              
-              # Write the fixed content
-              with open(filename, 'w') as f:
-                  f.write('\n'.join(fixed_lines) + '\n')
-              
-              print(f"✓ Fixed {filename}")
-              return True
-          
-          if __name__ == "__main__":
-              fix_netlink_file("netlink.c")
-          PYTHON_SCRIPT_END
-          
-          # Run the Python fix script
-          python3 fix_netlink.py
-          
-          # 4. Apply additional fixes for multicast registration
-          echo "Fixing multicast registration..."
-          
-          # Fix registration function with proper conditional compilation
-          if grep -q "ret = genl_register_family(&genl_family);" netlink.c; then
-              # Create a proper patch for registration
-              cat > registration_fix.patch << 'PATCH_END'
-          	ret = genl_register_family(&genl_family);
-          #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
-          	if (ret < 0)
-          		return ret;
-          	/* Register multicast groups separately for older kernels */
-          	ret = genl_register_mc_group(&genl_family, &wg_genl_mcgrps[0]);
-          	if (ret < 0) {
-          		genl_unregister_family(&genl_family);
-          		return ret;
-          	}
-          #endif
-          PATCH_END
-              
-              # Apply the patch after the registration line
-              sed -i '/ret = genl_register_family(&genl_family);/r registration_fix.patch' netlink.c
-              rm registration_fix.patch
-              echo "✓ Fixed registration function"
-          fi
-          
-          # Fix multicast function call with proper conditional compilation
-          if grep -q "genlmsg_multicast_netns(&genl_family" netlink.c; then
-              # Replace the multicast call with conditional version
-              sed -i '/ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);/c\
-          #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)\
-          	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);\
-          #else\
-          	ret = genlmsg_multicast_netns(dev_net(wg->dev), skb, 0, wg_genl_mcgrps[0].id, GFP_KERNEL);\
-          #endif' netlink.c
-              echo "✓ Fixed multicast function"
-          fi
-          
-          # 5. Final validation - check for preprocessor syntax errors
-          echo "=== Validating preprocessor syntax ==="
-          
-          # Count #if, #else, #endif to ensure they're balanced
-          python3 << 'VALIDATION_SCRIPT'
-          with open('netlink.c', 'r') as f:
-              content = f.read()
-          
-          lines = content.splitlines()
-          if_count = 0
-          else_count = 0
-          endif_count = 0
-          orphaned_else = []
-          
-          stack = []
-          for i, line in enumerate(lines):
-              stripped = line.strip()
-              if stripped.startswith('#if'):
-                  if_count += 1
-                  stack.append(('if', i+1))
-              elif stripped == '#else':
-                  else_count += 1
-                  if not stack or stack[-1][0] != 'if':
-                      orphaned_else.append(i+1)
-                  else:
-                      stack[-1] = ('else', i+1)
-              elif stripped.startswith('#endif'):
-                  endif_count += 1
-                  if stack:
-                      stack.pop()
-          
-          print(f"Preprocessor directive counts:")
-          print(f"  #if variants: {if_count}")
-          print(f"  #else: {else_count}")
-          print(f"  #endif: {endif_count}")
-          
-          if orphaned_else:
-              print(f"⚠ Found orphaned #else directives at lines: {orphaned_else}")
-              sys.exit(1)
-          
-          if stack:
-              print(f"⚠ Unmatched directives: {stack}")
-              sys.exit(1)
-          
-          print("✓ Preprocessor directives are properly balanced")
-          VALIDATION_SCRIPT
-          
-          # 6. Adjust compiler flags to suppress warnings that become errors
-          echo "Adjusting compiler flags..."
-          if [ -f "Makefile" ]; then
-              # Add flags to suppress specific warnings that become errors
-              if ! grep -q "Wno-address" Makefile; then
-                  sed -i '/^ccflags-y/s/$/ -Wno-address -Wno-array-bounds -Wno-missing-attributes -Wno-stringop-overread/' Makefile
-                  echo "✓ Added warning suppression flags"
-              fi
-          fi
-          
-          echo "=== COMPATIBILITY FIXES COMPLETED SUCCESSFULLY ==="
-          
       - name: Build module
         run: |
-          export PATH="/usr/local/bin:$PATH"
-          
-          # Verify toolchain is available before building
-          echo "=== Verifying toolchain availability ==="
-          which ${{ matrix.toolchain }}gcc || echo "ERROR: Compiler not found in PATH"
-          ${{ matrix.toolchain }}gcc --version || echo "ERROR: Compiler version check failed"
-          
+          tar -xf headers.tar
           cd module/src
-          
-          echo "=== Current module/src structure ==="
-          ls -la
-          
-          echo "=== Looking for Makefiles ==="
-          find . -name "Makefile*" -o -name "*.mk" | head -10
-          
-          if [ -f "Makefile" ]; then
-            echo "=== Main Makefile content (first 20 lines) ==="
-            head -20 Makefile
-          fi
-          
-          echo "=== Target kernel version: $KERNEL_VERSION ==="
-          
-          # Set build variables for compatibility
-          export KERNELDIR="$GITHUB_WORKSPACE/headers"
-          export KERNEL_SRC="$GITHUB_WORKSPACE/headers/source"
-          export KERNELRELEASE="$KERNEL_VERSION"
-          export CROSS_COMPILE="${{ matrix.toolchain }}"
-          export ARCH="mips"
-          
-          # Verify kernel source directory exists and is properly configured
-          if [ ! -d "$KERNEL_SRC" ]; then
-            echo "Warning: Kernel source not found at $KERNEL_SRC, using headers dir"
-            export KERNEL_SRC="$KERNELDIR"
-          fi
-          
-          echo "=== Kernel build environment verification ==="
-          echo "KERNELDIR: $KERNELDIR"
-          echo "KERNEL_SRC: $KERNEL_SRC"
-          echo "Checking headers directory:"
-          ls -la "$KERNELDIR" | head -10
-          echo "Checking if source Makefile exists:"
-          if [ -f "$KERNEL_SRC/Makefile" ]; then
-            echo "✓ Source Makefile found"
-            grep -E "^(VERSION|PATCHLEVEL|SUBLEVEL)" "$KERNEL_SRC/Makefile" | head -3 || echo "No version info in Makefile"
-          else
-            echo "⚠ Source Makefile not found at $KERNEL_SRC/Makefile"
-          fi
-          echo "Checking for scripts directory:"
-          ls -la "$KERNEL_SRC/scripts" | head -5 || echo "No scripts directory found"
-          
-          # Force disable WERROR and add compatibility flags
-          export KCFLAGS="-Wno-error -Wno-address -Wno-array-bounds -Wno-missing-attributes -Wno-stringop-overread"
-          export EXTRA_CFLAGS="$KCFLAGS"
-          
-          # Calculate optimal parallel jobs
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          
-          echo "=== Starting module build with compatibility mode ==="
-          echo "Kernel directory: $KERNELDIR"
-          echo "Cross compiler: $CROSS_COMPILE"
-          echo "Architecture: $ARCH"
-          echo "Kernel release: $KERNELRELEASE"
-          echo "Parallel jobs: $PARALLEL_JOBS"
-          
-          # Use the official AmnesiaWG build system - no hacks needed!
-          echo "=== Building module using official AmnesiaWG Makefile ==="
-          echo "Build environment:"
-          echo "  KERNELDIR: $KERNELDIR"
-          echo "  ARCH: $ARCH"
-          echo "  CROSS_COMPILE: $CROSS_COMPILE"
-          echo "  KERNELRELEASE: $KERNELRELEASE"
-          echo "  EXTRA_CFLAGS: $KCFLAGS"
-          
-          # We need the platform-specific headers, but the headers directory has problematic Makefiles
-          # Solution: Use the headers for compilation but avoid the recursive build system
-          echo "Building module using platform-specific headers (avoiding circular dependencies)"
-          
-          # Verify we have the essential files from headers generation
-          if [ ! -f "$KERNELDIR/.config" ]; then
-              echo "ERROR: Missing kernel configuration (.config) - headers build may have failed"
-              exit 1
-          fi
-          
-          if [ ! -f "$KERNELDIR/include/generated/autoconf.h" ]; then
-              echo "ERROR: Missing autoconf.h - headers build may have failed" 
-              exit 1
-          fi
-          
-          echo "✓ Platform-specific headers verified"
-          echo "✓ Kernel config: $(wc -l < "$KERNELDIR/.config") lines"
-          echo "✓ Include path: $KERNELDIR/include"
-          
-          # Method 1: Use the clean kernel source directory (this should work!)
-          KERNEL_SRC_DIR="$KERNELDIR/source"
-          if [ -d "$KERNEL_SRC_DIR" ] && [ -f "$KERNEL_SRC_DIR/Makefile" ]; then
-              echo "=== Using clean kernel source directory ==="
-              echo "Source: $KERNEL_SRC_DIR"
-              echo "Output: $KERNELDIR" 
-              echo "Module: $(pwd)"
-              
-              # This is the correct way: use clean source with output directory
-              if make -C "$KERNEL_SRC_DIR" M="$(pwd)" O="$KERNELDIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                  EXTRA_CFLAGS="$KCFLAGS" V=1 -j$PARALLEL_JOBS modules; then
-                  echo "✓ Module built successfully using clean kernel source"
-                  BUILD_SUCCESS=1
-              else
-                  echo "Clean kernel source build failed, this is unexpected since headers built successfully"
-                  echo "Checking source directory structure..."
-                  ls -la "$KERNEL_SRC_DIR" | head -10
-                  BUILD_SUCCESS=0
-              fi
-          else
-              echo "ERROR: Clean kernel source not found at $KERNEL_SRC_DIR"
-              echo "Headers directory structure:"
-              ls -la "$KERNELDIR"
-              BUILD_SUCCESS=0
-          fi
-          
-          # Method 2: Direct compilation with careful path management  
-          if [ $BUILD_SUCCESS -eq 0 ]; then
-              echo "=== Using direct compilation with platform headers ==="
-              
-              # Create a clean build environment using the headers but avoiding problematic Makefiles
-              # Copy essential files to avoid path conflicts
-              cp "$KERNELDIR/.config" . 2>/dev/null || true
-              cp "$KERNELDIR/Module.symvers" . 2>/dev/null || true
-              
-              # Set up include paths to use platform-specific headers
-              PLATFORM_INCLUDES="-I$KERNELDIR/include -I$KERNELDIR/include/generated -I$KERNELDIR/arch/$ARCH/include -I$KERNELDIR/arch/$ARCH/include/generated"
-              
-              # Try building using the module's own Makefile but with careful environment
-              export KERNELDIR_ORIG="$KERNELDIR"
-              export KERNELDIR="$KERNEL_SRC_DIR"  # Point to source if available, otherwise keep original
-              
-              if make ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-                  EXTRA_CFLAGS="$KCFLAGS $PLATFORM_INCLUDES" \
-                  KDIR="$KERNELDIR_ORIG" V=1 -j$PARALLEL_JOBS; then
-                  echo "✓ Module built successfully using direct compilation with platform headers"
-                  BUILD_SUCCESS=1
-              else
-                  echo "✗ Direct compilation failed"
-                  BUILD_SUCCESS=0
-              fi
-              
-              # Restore original KERNELDIR
-              export KERNELDIR="$KERNELDIR_ORIG"
-          fi
-          
-          # Check for successful build and handle the module file properly
-          if [ $BUILD_SUCCESS -eq 1 ]; then
-              echo "=== Locating built module ==="
-              
-              # The official AmnesiaWG build should produce amneziawg.ko
-              if [ -f "amneziawg.ko" ]; then
-                  echo "Found amneziawg.ko, renaming to wireguard.ko for compatibility"
-                  mv amneziawg.ko wireguard.ko
-              elif [ -f "wireguard.ko" ]; then
-                  echo "Found wireguard.ko"
-              else
-                  echo "=== ERROR: No module found after successful build ==="
-                  echo "Files in current directory:"
-                  ls -la *.ko 2>/dev/null || echo "No .ko files found"
-                  exit 1
-              fi
-              
-              # Strip and verify the module
-              ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
-              echo "=== Module built successfully ==="
-              ls -la wireguard.ko
-              
-              # Verify the module
-              file wireguard.ko
-              echo "Module info:"
-              ${{ matrix.toolchain }}objdump -h wireguard.ko | head -10 || echo "Could not analyze module"
-          else
-              echo "=== BUILD FAILED ==="
-              echo "Available files in directory:"
-              ls -la
-              exit 1
-          fi
-          
-      - name: Validate built module
-        run: |
-          cd module/src
-          echo "=== MODULE VALIDATION ==="
-          if [ -f "wireguard.ko" ]; then
-            # Basic checks
-            echo "Module size: $(stat -c%s wireguard.ko) bytes"
-            echo "Module type: $(file wireguard.ko)"
-            
-            # Check for required symbols
-            if ${{ matrix.toolchain }}nm wireguard.ko | grep -q "init_module\|cleanup_module"; then
-              echo "✓ Required module symbols found"
-            else
-              echo "⚠ Warning: Standard module symbols not found"
-            fi
-          else
-            echo "❌ Module not found!"
-            exit 1
-          fi
-          
-      - name: Enhanced error reporting
-        if: failure()
-        run: |
-          echo "=== MODULE BUILD FAILURE ANALYSIS ==="
-          echo "Available disk space:"
-          df -h
-          echo "Memory usage:"
-          free -h
-          echo "Build directory contents:"
-          find module/src -name "*.log" -exec echo "=== {} ===" \; -exec tail -50 {} \; 2>/dev/null || echo "No logs found"
-          echo "Generated files:"
-          find module/src -name "*.ko" -o -name "*.o" | head -20
-          echo "Kernel headers check:"
-          ls -la headers/ | head -10
-          echo "Netlink.c backup comparison:"
-          if [ -f "module/src/netlink.c.backup" ]; then
-            echo "=== Showing netlink.c changes ==="
-            diff -u module/src/netlink.c.backup module/src/netlink.c | head -50 || echo "Files are identical or diff failed"
-          fi
-          
+          make -j$(nproc) ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module
+          ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
       - name: Upload built module
         uses: actions/upload-artifact@v4
         with:
@@ -1086,93 +153,32 @@ jobs:
 
   tools:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    container:
+      image: ${{ matrix.image }}
 
     strategy:
       matrix:
         include:
           - arch: mips
             target: mips-linux-musl
+            image: lochnair/musl-buildenv:mips # Will be: mips-tools
           - arch: mipsel
             target: mipsel-linux-musl
-            
+            image: lochnair/musl-buildenv:mipsel # Will be: mipsel-tools
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup cross-compilation environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y curl build-essential xz-utils file
-          
-          # Use system cross-compilation packages instead of musl.cc
-          ARCH="${{ matrix.arch }}"
-          
-          if [ "$ARCH" = "mips" ]; then
-            sudo apt-get install -y gcc-mips-linux-gnu
-            TOOLCHAIN_PREFIX="mips-linux-gnu"
-          else
-            sudo apt-get install -y gcc-mipsel-linux-gnu
-            TOOLCHAIN_PREFIX="mipsel-linux-gnu"
-          fi
-          
-          echo "TOOLCHAIN_PREFIX=${TOOLCHAIN_PREFIX}" >> $GITHUB_ENV
-          echo "TOOLCHAIN_DIR=/usr" >> $GITHUB_ENV
-          
-      - name: Verify cross-compilation setup
-        run: |
-          echo "Checking cross-compiler:"
-          which ${TOOLCHAIN_PREFIX}-gcc || echo "Compiler not found in PATH"
-          ${TOOLCHAIN_PREFIX}-gcc --version || echo "Compiler execution failed"
-          
+      - uses: actions/checkout@v2
       - name: Build tools
         env:
           TARGET: ${{ matrix.target }}
           ARCH: ${{ matrix.arch }}
         run: |
-          # Download with retry logic
-          for attempt in {1..3}; do
-            if curl -L -o wireguard-tools-$TOOLS_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v$TOOLS_VERSION.tar.gz; then
-              break
-            fi
-            echo "Download attempt $attempt failed, retrying..."
-            sleep 5
-          done
-          
-          tar -xf wireguard-tools-$TOOLS_VERSION.tar.gz
-          
-          # Check what directory was actually created
-          echo "=== Extracted contents ==="
-          ls -la
-          
-          # Find the actual directory name (it might be amneziawg-tools-$TOOLS_VERSION)
-          ACTUAL_DIR=$(find . -maxdepth 1 -type d -name "*tools*" | head -1)
-          if [ -z "$ACTUAL_DIR" ]; then
-            echo "ERROR: Could not find extracted tools directory"
-            ls -la
-            exit 1
-          fi
-          
-          echo "Found tools directory: $ACTUAL_DIR"
-          mv "$ACTUAL_DIR" tools
-          
+          apk add gnupg
+          curl -L -o amneziawg-tools-$TOOLS_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v$TOOLS_VERSION.tar.gz
+          tar -xf amneziawg-tools-$TOOLS_VERSION.tar.gz
+          mv amneziawg-tools-$TOOLS_VERSION tools
           cd tools/src
-          # Use system cross-compiler with static linking
-          CC="${TOOLCHAIN_PREFIX}-gcc" LDFLAGS="-static" make -j$(nproc)
-          ${TOOLCHAIN_PREFIX}-strip --strip-unneeded wg
-          
-      - name: Validate built tools
-        run: |
-          cd tools/src
-          echo "=== TOOLS VALIDATION ==="
-          if [ -f "wg" ]; then
-            echo "Tool size: $(stat -c%s wg) bytes"
-            echo "Tool type: $(file wg)"
-            echo "✓ wg tool built successfully"
-          else
-            echo "❌ wg tool not found!"
-            exit 1
-          fi
-          
+          CC="$ARCH-linux-musl-gcc" LDLIBS="-static" make -j$(nproc)
+          $ARCH-linux-musl-strip --strip-unneeded wg
       - name: Upload built tools
         uses: actions/upload-artifact@v4
         with:
@@ -1182,9 +188,8 @@ jobs:
   package:
     needs: [module, tools]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
     container:
-      image: ubuntu:24.04
+      image: debian
 
     strategy:
       matrix:
@@ -1205,27 +210,20 @@ jobs:
           - device: e50
             version: 2
             arch: mipsel
-            
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y kmod file
-          
+      - uses: actions/checkout@v2
       - name: Download module
         uses: actions/download-artifact@v4
         with:
           name: module-${{ matrix.device }}-${{ matrix.version }}
-          
       - name: Download tools
         uses: actions/download-artifact@v4
         with:
           name: tools-${{ matrix.arch }}
-          
       - name: Build package
         run: |
+          apt update
+          apt install -y kmod
           export KERNEL=$(modinfo -F vermagic wireguard.ko | cut -d ' ' -f 1)
           mkdir -p pkg/usr/bin pkg/lib/modules/$KERNEL/kernel/net
           cp -r debian pkg/DEBIAN
@@ -1239,322 +237,76 @@ jobs:
           sed -i "s/PACKAGE_ARCH/${{ matrix.arch }}/g" pkg/DEBIAN/control
           dpkg-deb -b -Z gzip pkg
           mv pkg.deb ${{ matrix.device }}-v${{ matrix.version }}-v$MODULE_VERSION-v$TOOLS_VERSION.deb
-          
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.device }}-v${{ matrix.version }}
+          name: release_${{ matrix.device }}-v${{ matrix.version }}
           path: ${{ matrix.device }}-v${{ matrix.version }}-v${{ env.MODULE_VERSION }}-v${{ env.TOOLS_VERSION }}.deb
 
   udm-prepare-buildroot:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Cache buildroot
-        uses: actions/cache@v4
-        with:
-          path: buildroot-2017.11.1
-          key: buildroot-2017.11.1-${{ hashFiles('unifios/patches/*') }}-v8
-          
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            m4 \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            kmod \
-            lzip \
-            ccache \
-            bison \
-            flex \
-            gettext \
-            libncurses5-dev \
-            rsync \
-            unzip \
-            bc \
-            wget \
-            cpio \
-            curl \
-            ca-certificates \
-            patch \
-            file \
-            python3
-            
+      - uses: actions/checkout@v2
       - name: Download buildroot-2017.11.1
         run: |
-          if [ ! -f "buildroot.tar.bz2" ]; then
-            curl -o buildroot.tar.bz2 https://buildroot.org/downloads/buildroot-2017.11.1.tar.bz2
-            tar -xf buildroot.tar.bz2
-          fi
-          
-      - name: Download WireGuard module source
+          curl -o buildroot.tar.bz2 https://buildroot.org/downloads/buildroot-2017.11.1.tar.bz2
+          tar -xf buildroot.tar.bz2
+      - name: Download AmnesiaWG module source
         run: |
-          # Download with retry logic
-          for attempt in {1..3}; do
-            if curl -L -o wireguard-linux-compat-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz; then
-              break
-            fi
-            echo "Download attempt $attempt failed, retrying..."
-            sleep 5
-          done
-          gunzip wireguard-linux-compat-$MODULE_VERSION.tar.gz
-          
-      - name: Download WireGuard tools source
+          curl -L -o amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
+          tar -xf amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz
+          tar -cf amneziawg-linux-kernel-module-$MODULE_VERSION.tar amneziawg-linux-kernel-module-$MODULE_VERSION/
+      - name: Download AmnesiaWG tools source
         run: |
-          # Download with retry logic
-          for attempt in {1..3}; do
-            if curl -L -o wireguard-tools-$TOOLS_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v$TOOLS_VERSION.tar.gz; then
-              break
-            fi
-            echo "Download attempt $attempt failed, retrying..."
-            sleep 5
-          done
-          gunzip wireguard-tools-$TOOLS_VERSION.tar.gz
-          
+          curl -L -o amneziawg-tools-$TOOLS_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v$TOOLS_VERSION.tar.gz
+          tar -xf amneziawg-tools-$TOOLS_VERSION.tar.gz
+          tar -cf amneziawg-tools-$TOOLS_VERSION.tar amneziawg-tools-$TOOLS_VERSION/
       - name: Copy packages
         run: cp -pr unifios/packages/* buildroot-2017.11.1/package
-        
-      - name: Copy WireGuard source
+      - name: Copy AmnesiaWG source
         run: |
-          cp wireguard-linux-compat-$MODULE_VERSION.tar buildroot-2017.11.1/package/wireguard-linux-compat/
-          cp wireguard-tools-$TOOLS_VERSION.tar buildroot-2017.11.1/package/wireguard-tools/
-          
+          cp amneziawg-linux-kernel-module-$MODULE_VERSION.tar buildroot-2017.11.1/package/wireguard-linux-compat/
+          cp amneziawg-tools-$TOOLS_VERSION.tar buildroot-2017.11.1/package/wireguard-tools/
       - name: Set package versions
         run: |
           sed -i "s/PACKAGE_VERSION/$MODULE_VERSION/g" buildroot-2017.11.1/package/wireguard-linux-compat/wireguard-linux-compat.mk
           sed -i "s/PACKAGE_VERSION/$TOOLS_VERSION/g" buildroot-2017.11.1/package/wireguard-tools/wireguard-tools.mk
-          
-      - name: Apply patches
+      - name: Patches
         run: |
-          echo "=== APPLYING BUILDROOT PATCHES ==="
-          
-          # Apply basic patches first
           patch -p0 <unifios/patches/wireguard-packages.patch
           patch -p0 <unifios/patches/openresolv-package.patch
           patch -d buildroot-2017.11.1 -p1 <unifios/patches/add-kernel-4-19.patch
-          
-          # Find and copy version-specific patches
-          cd buildroot-2017.11.1
-          
-          # Handle m4 patch
-          echo "Finding m4 version directory..."
-          M4_VERSION_DIR=$(find package/m4 -maxdepth 1 -type d -name "[0-9]*" | head -1)
-          if [ -n "$M4_VERSION_DIR" ]; then
-            echo "Found m4 version dir: $M4_VERSION_DIR"
-            cp ../unifios/patches/0001-m4-glibc-change-work-around.patch "$M4_VERSION_DIR/"
-            echo "✓ Applied m4 patch to $M4_VERSION_DIR"
-          else
-            echo "No m4 version directory found, copying to package/m4/"
-            mkdir -p package/m4/patches
-            cp ../unifios/patches/0001-m4-glibc-change-work-around.patch package/m4/patches/
-            echo "✓ Applied m4 patch to package/m4/patches/"
-          fi
-          
-          # Handle bison patch
-          echo "Finding bison version directory..."
-          BISON_VERSION_DIR=$(find package/bison -maxdepth 1 -type d -name "[0-9]*" | head -1)
-          if [ -n "$BISON_VERSION_DIR" ]; then
-            echo "Found bison version dir: $BISON_VERSION_DIR"
-            cp ../unifios/patches/0001-bison-glibc-change-work-around.patch "$BISON_VERSION_DIR/"
-            echo "✓ Applied bison patch to $BISON_VERSION_DIR"
-          else
-            echo "No bison version directory found, copying to package/bison/"
-            mkdir -p package/bison/patches
-            cp ../unifios/patches/0001-bison-glibc-change-work-around.patch package/bison/patches/
-            echo "✓ Applied bison patch to package/bison/patches/"
-          fi
-          
-          # Handle GCC patch
-          echo "Finding GCC version directory..."
-          GCC_VERSION_DIR=$(find package/gcc -maxdepth 1 -type d -name "6.4.0" | head -1)
-          if [ -n "$GCC_VERSION_DIR" ]; then
-            echo "Found GCC version dir: $GCC_VERSION_DIR"
-            cp ../unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch "$GCC_VERSION_DIR/"
-            echo "✓ Applied GCC patch to $GCC_VERSION_DIR"
-          else
-            echo "GCC 6.4.0 directory not found, checking for other versions..."
-            GCC_VERSION_DIR=$(find package/gcc -maxdepth 1 -type d -name "[0-9]*" | head -1)
-            if [ -n "$GCC_VERSION_DIR" ]; then
-              echo "Found alternate GCC version dir: $GCC_VERSION_DIR"
-              cp ../unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch "$GCC_VERSION_DIR/" || echo "Failed to copy GCC patch, continuing"
-            else
-              echo "No GCC version directory found, creating one"
-              mkdir -p package/gcc/6.4.0
-              cp ../unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch package/gcc/6.4.0/
-            fi
-          fi
-          
-          echo "=== PATCH APPLICATION COMPLETED ==="
-          
-      - name: Initialize buildroot
-        run: |
-          cd buildroot-2017.11.1
-          # Create output directory structure first
-          mkdir -p output
-          # Create a proper .br-external.mk file for buildroot 2017.11.1
-          echo "# This file is automatically generated by buildroot" > output/.br-external.mk
-          echo "# DO NOT EDIT" >> output/.br-external.mk
-          echo "" >> output/.br-external.mk
-          echo "# List of directories containing external packages" >> output/.br-external.mk
-          echo "BR2_EXTERNAL :=" >> output/.br-external.mk
-          echo "" >> output/.br-external.mk
-          echo "# List of external packages" >> output/.br-external.mk
-          echo "BR2_EXTERNAL_NAMES :=" >> output/.br-external.mk
-          echo "" >> output/.br-external.mk
-          echo "# List of external makefiles" >> output/.br-external.mk
-          echo "BR2_EXTERNAL_MKS :=" >> output/.br-external.mk
-          echo "" >> output/.br-external.mk
-          echo "# List of external package descriptions" >> output/.br-external.mk
-          echo "BR2_EXTERNAL_DESCS :=" >> output/.br-external.mk
-          echo "" >> output/.br-external.mk
-          echo "# List of external package dependencies" >> output/.br-external.mk
-          echo "BR2_EXTERNAL_DEPS :=" >> output/.br-external.mk
-          echo "" >> output/.br-external.mk
-          # Initialize with defconfig to create basic structure
-          make defconfig
-          # Ensure output structure exists
-          mkdir -p output/build output/target output/host output/staging
-          
+          cp unifios/patches/0001-m4-glibc-change-work-around.patch buildroot-2017.11.1/package/m4
+          cp unifios/patches/0001-bison-glibc-change-work-around.patch buildroot-2017.11.1/package/bison
+          cp unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch buildroot-2017.11.1/package/gcc/6.4.0
       - name: Generate artifacts
         run: tar -cf buildroot.tar buildroot-2017.11.1
-        
-      - name: Store buildroot
+      - name: Store headers
         uses: actions/upload-artifact@v4
         with:
           name: buildroot
           path: buildroot.tar
-
   udm-build-modules:
     needs: [udm-prepare-buildroot]
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    
     strategy:
-      fail-fast: false
       matrix:
         base: [udm-1.9.0-10, udm-1.10.0-8, udm-1.10.0-12, udm-se-2.2.4, udr-2.2.12]
-      
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            m4 \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            kmod \
-            lzip \
-            ccache \
-            bison \
-            flex \
-            gettext \
-            libncurses5-dev \
-            rsync \
-            unzip \
-            bc \
-            wget \
-            cpio \
-            curl \
-            ca-certificates \
-            patch \
-            file \
-            python3
-
+      - uses: actions/checkout@v2
       - name: Restore buildroot
         uses: actions/download-artifact@v4
         with:
           name: buildroot
-          
       - name: Extract buildroot
         run: tar -xf buildroot.tar
-        
-      - name: Configure buildroot
-        run: |
-          cd buildroot-2017.11.1
-          
-          echo "=== CONFIGURING BUILDROOT FOR ${{ matrix.base }} ==="
-          
-          # Ensure output directory structure exists
-          mkdir -p output/build output/target output/host output/staging
-          
-          # Recreate the .br-external.mk file if it doesn't exist
-          if [ ! -f "output/.br-external.mk" ]; then
-            echo "Creating .br-external.mk file..."
-            echo "# This file is automatically generated by buildroot" > output/.br-external.mk
-            echo "# DO NOT EDIT" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of directories containing external packages" >> output/.br-external.mk
-            echo "BR2_EXTERNAL :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external packages" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_NAMES :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external makefiles" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_MKS :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external package descriptions" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_DESCS :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external package dependencies" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_DEPS :=" >> output/.br-external.mk
-          fi
-          
-          # Check if base configuration files exist
-          if [ ! -f "../unifios/bases/${{ matrix.base }}/buildroot-config.txt" ]; then
-            echo "ERROR: buildroot-config.txt not found for ${{ matrix.base }}"
-            echo "Available base configurations:"
-            ls -la ../unifios/bases/ || echo "No base configurations found"
-            exit 1
-          fi
-          
-          if [ ! -f "../unifios/bases/${{ matrix.base }}/kernel-config" ]; then
-            echo "ERROR: kernel-config not found for ${{ matrix.base }}"
-            exit 1
-          fi
-          
-          # Copy configs
-          cp ../unifios/bases/${{ matrix.base }}/buildroot-config.txt .config
-          cp ../unifios/bases/${{ matrix.base }}/kernel-config kernel-config
-          
-          # Configure buildroot with enhanced compatibility
-          echo "Running make olddefconfig..."
-          make olddefconfig
-          
       - name: Build wireguard module
         run: |
           mkdir -p modules
-          
-          # Read configuration files
-          if [ ! -f "unifios/bases/${{ matrix.base }}/versions.txt" ]; then
-            echo "ERROR: versions.txt not found for ${{ matrix.base }}"
-            exit 1
-          fi
-          
+          cp unifios/bases/${{ matrix.base }}/buildroot-config.txt buildroot-2017.11.1/.config
+          cp unifios/bases/${{ matrix.base }}/kernel-config buildroot-2017.11.1/kernel-config
           versions="$(cat unifios/bases/${{ matrix.base }}/versions.txt)"
-          prefix="$(cat unifios/bases/${{ matrix.base }}/prefix 2>/dev/null || echo '')"
-          
-          # Validate versions
-          if [ -z "$versions" ]; then
-            echo "Error: No versions found for ${{ matrix.base }}"
-            exit 1
-          fi
-          
-          echo "Building for versions: $versions"
-          echo "Using prefix: $prefix"
-          
-          # Clean and prepare patches
+          prefix="$(cat unifios/bases/${{ matrix.base }}/prefix)"
           rm -rf ./buildroot-2017.11.1/linux-patches ./buildroot-2017.11.1/patches
           if [ -d "unifios/bases/${{ matrix.base }}/linux-patches" ]; then
             cp -rf "unifios/bases/${{ matrix.base }}/linux-patches" ./buildroot-2017.11.1/
@@ -1565,891 +317,106 @@ jobs:
           if [ -d "unifios/bases/${{ matrix.base }}/patches" ]; then
             cp -rf "unifios/bases/${{ matrix.base }}/patches" ./buildroot-2017.11.1/
           fi
-          
           cd buildroot-2017.11.1
-          
-          # Set comprehensive host compiler flags for maximum compatibility
-          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -Wno-implicit-function-declaration -Wno-unused-but-set-variable -Wno-unused-variable"
-          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -Wno-implicit-function-declaration"
-          export CFLAGS="-fcommon -Wno-error"
-          export CXXFLAGS="-fcommon -Wno-error"
-          
-          # Additional environment variables for build stability
-          export MAKEFLAGS="-j$(($(nproc) * 3 / 4))"
-          export FORCE_UNSAFE_CONFIGURE=1
-          export LC_ALL=C
-          
-          # Calculate optimal parallel jobs
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          
-          echo "Using $PARALLEL_JOBS parallel jobs (from $NPROC cores)"
-          echo "Host flags: HOSTCFLAGS=$HOSTCFLAGS"
-          
-          # Build for each version
-          IFS=','
+          (IFS=','
           for ver in $versions; do
-            echo "=== Building version $ver ==="
-            
-            # Enhanced cleaning - be more thorough
-            echo "Cleaning previous build..."
-            if make -n wireguard-linux-compat-dirclean >/dev/null 2>&1; then
-              make wireguard-linux-compat-dirclean || echo "Clean failed, continuing"
-            else
-              echo "Clean target not available, manual cleanup"
-              rm -rf output/build/wireguard-linux-compat-* 2>/dev/null || true
-              rm -rf output/build/linux-custom 2>/dev/null || true
-            fi
-            
-            # Clean kernel build artifacts that might cause issues
-            rm -rf output/build/linux-* 2>/dev/null || true
-            
-            echo "Setting kernel version to: $ver"
+            echo "Building version $ver"
+            make wireguard-linux-compat-dirclean
             sed -i -e '/CONFIG_LOCALVERSION=/s/.*/CONFIG_LOCALVERSION="'$ver'"/' kernel-config
-            
-            # Ensure the config is properly applied
-            make olddefconfig
-            
-            # Build with enhanced error handling and retry logic
-            echo "Starting build for version $ver..."
-            BUILD_SUCCESS=0
-            
-            # First attempt - normal build
-            if make wireguard-linux-compat-rebuild -j$PARALLEL_JOBS \
-                HOSTCFLAGS="$HOSTCFLAGS" \
-                HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-                CFLAGS="$CFLAGS" \
-                CXXFLAGS="$CXXFLAGS" \
-                V=1; then
-              BUILD_SUCCESS=1
-              echo "✓ Build succeeded on first attempt"
-            else
-              echo "⚠ First build attempt failed, trying with single job..."
-              
-              # Second attempt - single threaded for better error visibility
-              if make wireguard-linux-compat-rebuild -j1 \
-                  HOSTCFLAGS="$HOSTCFLAGS" \
-                  HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-                  CFLAGS="$CFLAGS" \
-                  CXXFLAGS="$CXXFLAGS" \
-                  V=1; then
-                BUILD_SUCCESS=1
-                echo "✓ Build succeeded on single-threaded attempt"
-              else
-                echo "⚠ Single-threaded build failed, trying with make clean first..."
-                
-                # Third attempt - clean everything and try again
-                make clean || true
-                rm -rf output/build/wireguard-linux-compat-* output/build/linux-* 2>/dev/null || true
-                
-                if make wireguard-linux-compat-rebuild -j1 \
-                    HOSTCFLAGS="$HOSTCFLAGS" \
-                    HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-                    CFLAGS="$CFLAGS" \
-                    CXXFLAGS="$CXXFLAGS" \
-                    V=1; then
-                  BUILD_SUCCESS=1
-                  echo "✓ Build succeeded after clean"
-                fi
-              fi
-            fi
-            
-            if [ $BUILD_SUCCESS -eq 0 ]; then
-              echo "=== BUILD FAILED for version $ver after all attempts ==="
-              echo "Build directory contents:"
-              ls -la output/build/ 2>/dev/null || echo "No build directory"
-              echo "Checking for build logs:"
-              find output -name "*.log" -exec echo "=== {} ===" \; -exec tail -50 {} \; 2>/dev/null || echo "No logs found"
-              echo "Checking for specific error patterns:"
-              grep -r "error:" output/build/ 2>/dev/null | tail -20 || echo "No error patterns found"
-              exit 1
-            fi
-            
-            # Verify and copy files with enhanced error checking
-            WIREGUARD_KO_PATH="output/build/wireguard-linux-compat-$MODULE_VERSION/src/wireguard.ko"
-            if [ ! -f "$WIREGUARD_KO_PATH" ]; then
-              # Check for alternative locations
-              echo "Standard wireguard.ko not found, checking alternative locations..."
-              ALTERNATIVE_PATHS=(
-                "output/build/amneziawg-linux-kernel-module-$MODULE_VERSION/src/amneziawg.ko"
-                "output/build/amneziawg-linux-kernel-module-$MODULE_VERSION/src/wireguard.ko"
-                "output/build/wireguard-linux-compat-$MODULE_VERSION/src/amneziawg.ko"
-              )
-              
-              FOUND_MODULE=""
-              for alt_path in "${ALTERNATIVE_PATHS[@]}"; do
-                if [ -f "$alt_path" ]; then
-                  FOUND_MODULE="$alt_path"
-                  echo "Found module at alternative location: $alt_path"
-                  break
-                fi
-              done
-              
-              if [ -z "$FOUND_MODULE" ]; then
-                echo "Error: No WireGuard module found for version $ver"
-                echo "Searched locations:"
-                for path in "${ALTERNATIVE_PATHS[@]}"; do
-                  echo "  - $path"
-                done
-                echo "$WIREGUARD_KO_PATH"
-                echo "Available files in build directory:"
-                find output/build -name "*.ko" 2>/dev/null || echo "No .ko files found"
-                exit 1
-              fi
-              WIREGUARD_KO_PATH="$FOUND_MODULE"
-            fi
-            
-            # Copy the main WireGuard module
-            cp "$WIREGUARD_KO_PATH" "../modules/wireguard-${prefix}${ver}.ko"
-            echo "✓ Copied WireGuard module: wireguard-${prefix}${ver}.ko"
-            
-            # Copy netfilter modules if they exist (optional)
-            IPTABLE_RAW_PATH="output/build/linux-custom/net/ipv4/netfilter/iptable_raw.ko"
-            if [ -f "$IPTABLE_RAW_PATH" ]; then
-              cp "$IPTABLE_RAW_PATH" "../modules/iptable_raw-${prefix}${ver}.ko"
-              echo "✓ Copied iptable_raw module: iptable_raw-${prefix}${ver}.ko"
-            else
-              echo "ℹ iptable_raw.ko not found for version $ver (optional)"
-            fi
-            
-            IP6TABLE_RAW_PATH="output/build/linux-custom/net/ipv6/netfilter/ip6table_raw.ko"
-            if [ -f "$IP6TABLE_RAW_PATH" ]; then
-              cp "$IP6TABLE_RAW_PATH" "../modules/ip6table_raw-${prefix}${ver}.ko"
-              echo "✓ Copied ip6table_raw module: ip6table_raw-${prefix}${ver}.ko"
-            else
-              echo "ℹ ip6table_raw.ko not found for version $ver (optional)"
-            fi
-            
-            echo "✓ Successfully built and copied modules for version $ver"
-          done
-          
-          echo "=== BUILD COMPLETED SUCCESSFULLY FOR ALL VERSIONS ==="
-          echo "Final module inventory:"
-          ls -la ../modules/
-          
-      - name: Enhanced error reporting
-        if: failure()
-        run: |
-          echo "=== UDM MODULE BUILD FAILURE ANALYSIS ==="
-          echo "Available disk space:"
-          df -h
-          echo "Memory usage:"
-          free -h
-          echo "Buildroot directory:"
-          ls -la buildroot-2017.11.1/output/build/ | head -10
-          echo "Configuration files:"
-          ls -la unifios/bases/${{ matrix.base }}/
-          
+            make wireguard-linux-compat-rebuild -j$(nproc)
+            cp output/build/wireguard-linux-compat-$MODULE_VERSION/src/wireguard.ko ../modules/wireguard-${prefix}${ver}.ko
+            cp output/build/linux-custom/net/ipv4/netfilter/iptable_raw.ko ../modules/iptable_raw-${prefix}${ver}.ko
+            cp output/build/linux-custom/net/ipv6/netfilter/ip6table_raw.ko ../modules/ip6table_raw-${prefix}${ver}.ko
+          done)
       - name: Store modules
         uses: actions/upload-artifact@v4
         with:
-          name: modules-${{ matrix.base }}
+          name: modules
           path: modules
-
   udm-build-tools:
     needs: [udm-prepare-buildroot]
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
     env:
       BASE: udm-1.9.0-10
-      
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            m4 \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            kmod \
-            lzip \
-            ccache \
-            bison \
-            flex \
-            gettext \
-            libncurses5-dev \
-            rsync \
-            unzip \
-            bc \
-            wget \
-            cpio \
-            curl \
-            ca-certificates \
-            patch \
-            file \
-            python3
-            
+      - uses: actions/checkout@v2
       - name: Restore buildroot
         uses: actions/download-artifact@v4
         with:
           name: buildroot
-          
       - name: Extract buildroot
         run: tar -xf buildroot.tar
-        
       - name: Configure buildroot
         run: |
-          cd buildroot-2017.11.1
-          
-          # Ensure output directory structure exists
-          mkdir -p output/build output/target output/host output/staging
-          
-          # Recreate the .br-external.mk file if it doesn't exist
-          if [ ! -f "output/.br-external.mk" ]; then
-            echo "# This file is automatically generated by buildroot" > output/.br-external.mk
-            echo "# DO NOT EDIT" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of directories containing external packages" >> output/.br-external.mk
-            echo "BR2_EXTERNAL :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external packages" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_NAMES :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external makefiles" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_MKS :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external package descriptions" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_DESCS :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external package dependencies" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_DEPS :=" >> output/.br-external.mk
-          fi
-          
-          # Copy configs
-          cp ../unifios/bases/${{ env.BASE }}/buildroot-config.txt .config
-          cp ../unifios/bases/${{ env.BASE }}/kernel-config kernel-config
-          
-          # Configure buildroot
-          make olddefconfig
-
-      - name: Apply comprehensive gnulib fixes for m4
-        run: |
-          cd buildroot-2017.11.1
-          
-          echo "=== APPLYING COMPREHENSIVE GNULIB FIXES FOR M4 ==="
-          
-          # Strategy 1: Try to disable host-m4 entirely and use system m4
-          echo "=== Attempting to use system m4 instead of building it ==="
-          
-          # Check if system m4 is available and working
-          if which m4 && m4 --version; then
-            echo "System m4 is available: $(which m4)"
-            echo "System m4 version: $(m4 --version | head -1)"
-            
-            # Try to disable host-m4 in the buildroot config
-            if grep -q "BR2_PACKAGE_HOST_M4=y" .config 2>/dev/null; then
-              echo "Disabling buildroot's host-m4 to use system m4..."
-              sed -i 's/BR2_PACKAGE_HOST_M4=y/# BR2_PACKAGE_HOST_M4 is not set/' .config
-              
-              # Update dependencies to ensure packages that need m4 can find it
-              echo "export M4=/usr/bin/m4" >> output/.config
-              
-              # Run olddefconfig to apply changes
-              make olddefconfig
-              
-              # Verify the change took effect
-              if ! grep -q "BR2_PACKAGE_HOST_M4=y" .config; then
-                echo "✓ Successfully disabled host-m4, will use system m4"
-                # Create a host m4 wrapper to ensure buildroot finds it
-                mkdir -p output/host/bin
-                ln -sf /usr/bin/m4 output/host/bin/m4
-                echo "✓ Created m4 symlink in buildroot host tools"
-                return 0
-              else
-                echo "⚠ Could not disable host-m4, falling back to patching"
-              fi
-            else
-              echo "host-m4 not found in config, checking if it's a dependency..."
-            fi
-          else
-            echo "System m4 not available, must build host-m4 with patches"
-          fi
-          
-          # Strategy 2: If we must build m4, apply comprehensive patches
-          echo "=== Proceeding with host-m4 build patches ==="
-          
-          # Force clean any existing m4 build to ensure fresh start
-          rm -rf output/build/host-m4-* || true
-          
-          # Extract m4 source first
-          echo "Extracting m4 source..."
-          make host-m4-extract || make host-m4-source || {
-            echo "Could not extract m4, trying to find existing source..."
-          }
-          
-          # Find the M4 build directory (try multiple possible names)
-          M4_BUILD_DIR=""
-          for potential_dir in output/build/host-m4-* output/build/m4-*; do
-            if [ -d "$potential_dir" ]; then
-              M4_BUILD_DIR="$potential_dir"
-              break
-            fi
-          done
-          
-          if [ -z "$M4_BUILD_DIR" ]; then
-            echo "M4 build directory not found, creating manually..."
-            # Try to download and extract m4 manually
-            M4_VERSION="1.4.18"
-            cd output/build
-            if [ ! -f "m4-${M4_VERSION}.tar.xz" ]; then
-              echo "Downloading m4 source manually..."
-              curl -L -o "m4-${M4_VERSION}.tar.xz" "https://ftp.gnu.org/gnu/m4/m4-${M4_VERSION}.tar.xz" || {
-                echo "Failed to download m4, trying backup URL..."
-                curl -L -o "m4-${M4_VERSION}.tar.xz" "https://mirrors.kernel.org/gnu/m4/m4-${M4_VERSION}.tar.xz"
-              }
-            fi
-            tar -xf "m4-${M4_VERSION}.tar.xz"
-            M4_BUILD_DIR="$(pwd)/m4-${M4_VERSION}"
-            mv "$M4_BUILD_DIR" "host-m4-${M4_VERSION}" 2>/dev/null || true
-            M4_BUILD_DIR="$(pwd)/host-m4-${M4_VERSION}"
-            cd ../..
-          fi
-          
-          if [ -n "$M4_BUILD_DIR" ] && [ -d "$M4_BUILD_DIR" ]; then
-            echo "Found M4 build directory: $M4_BUILD_DIR"
-            
-            # Create comprehensive gnulib patches
-            echo "=== Creating and applying comprehensive gnulib patches ==="
-            
-            # 1. Fix freadahead.c
-            if [ -f "$M4_BUILD_DIR/lib/freadahead.c" ]; then
-              echo "Patching freadahead.c..."
-              cp "$M4_BUILD_DIR/lib/freadahead.c" "$M4_BUILD_DIR/lib/freadahead.c.orig"
-              
-              # Use a more robust patch that finds the right location
-              cat > freadahead_patch.c << 'PATCH_EOF'
-          #elif defined __GLIBC__ && defined _IO_ftrylockfile
-            /* GNU libc, BeOS, Haiku, Linux libc5 */
-            struct _IO_FILE *fp = (struct _IO_FILE *) stream;
-            if (fp->_IO_write_ptr > fp->_IO_write_base)
-              return 0;
-            return (fp->_IO_read_end - fp->_IO_read_ptr);
-          PATCH_EOF
-              
-              # Find the exact error line and insert before it
-              if grep -n "#error.*port gnulib freadahead" "$M4_BUILD_DIR/lib/freadahead.c"; then
-                # Insert the glibc compatibility code before the #error line
-                ERROR_LINE=$(grep -n "#error.*port gnulib freadahead" "$M4_BUILD_DIR/lib/freadahead.c" | cut -d: -f1)
-                head -n $((ERROR_LINE - 2)) "$M4_BUILD_DIR/lib/freadahead.c" > temp_freadahead.c
-                cat freadahead_patch.c >> temp_freadahead.c
-                tail -n +$((ERROR_LINE - 1)) "$M4_BUILD_DIR/lib/freadahead.c" >> temp_freadahead.c
-                mv temp_freadahead.c "$M4_BUILD_DIR/lib/freadahead.c"
-                echo "✓ Applied freadahead.c patch"
-              else
-                echo "⚠ Could not find error line in freadahead.c"
-              fi
-              rm -f freadahead_patch.c
-            fi
-            
-            # 2. Fix fseeko.c
-            if [ -f "$M4_BUILD_DIR/lib/fseeko.c" ]; then
-              echo "Patching fseeko.c..."
-              cp "$M4_BUILD_DIR/lib/fseeko.c" "$M4_BUILD_DIR/lib/fseeko.c.orig"
-              
-              cat > fseeko_patch.c << 'PATCH_EOF'
-          #elif defined __GLIBC__ && defined _IO_ftrylockfile
-            /* GNU libc, BeOS, Haiku, Linux libc5 */
-            if (((fp->_flags & _IO_IN_BACKUP) != 0 && fp->_IO_save_base != NULL)
-                || ((fp->_flags & _IO_OUT_BACKUP) != 0 && fp->_IO_backup_base != NULL))
-              return -1;
-            fp->_flags &= ~_IO_EOF_SEEN;
-            return fseeko (fp, offset, whence);
-          PATCH_EOF
-              
-              # Find the exact error line and insert before it
-              if grep -n "#error.*port gnulib fseeko" "$M4_BUILD_DIR/lib/fseeko.c"; then
-                ERROR_LINE=$(grep -n "#error.*port gnulib fseeko" "$M4_BUILD_DIR/lib/fseeko.c" | cut -d: -f1)
-                head -n $((ERROR_LINE - 2)) "$M4_BUILD_DIR/lib/fseeko.c" > temp_fseeko.c
-                cat fseeko_patch.c >> temp_fseeko.c
-                tail -n +$((ERROR_LINE - 1)) "$M4_BUILD_DIR/lib/fseeko.c" >> temp_fseeko.c
-                mv temp_fseeko.c "$M4_BUILD_DIR/lib/fseeko.c"
-                echo "✓ Applied fseeko.c patch"
-              else
-                echo "⚠ Could not find error line in fseeko.c"
-              fi
-              rm -f fseeko_patch.c
-            fi
-            
-            # 3. Fix c-stack.c for SIGSTKSZ
-            if [ -f "$M4_BUILD_DIR/lib/c-stack.c" ]; then
-              echo "Patching c-stack.c for SIGSTKSZ..."
-              cp "$M4_BUILD_DIR/lib/c-stack.c" "$M4_BUILD_DIR/lib/c-stack.c.orig"
-              
-              # Replace the problematic SIGSTKSZ preprocessor check
-              sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV/' "$M4_BUILD_DIR/lib/c-stack.c"
-              echo "✓ Applied c-stack.c SIGSTKSZ patch"
-            fi
-            
-            # 4. Add additional compatibility defines to config.h if needed
-            if [ -f "$M4_BUILD_DIR/lib/config.h" ]; then
-              echo "Adding additional compatibility defines..."
-              if ! grep -q "_GNU_SOURCE" "$M4_BUILD_DIR/lib/config.h"; then
-                echo "#define _GNU_SOURCE 1" >> "$M4_BUILD_DIR/lib/config.h"
-                echo "✓ Added _GNU_SOURCE to config.h"
-              fi
-            fi
-            
-            # 5. Verify patches were applied
-            echo "=== Verifying patches ==="
-            echo "Checking freadahead.c:"
-            if grep -q "__GLIBC__.*_IO_ftrylockfile" "$M4_BUILD_DIR/lib/freadahead.c"; then
-              echo "✓ freadahead.c patch verified"
-            else
-              echo "✗ freadahead.c patch verification failed"
-            fi
-            
-            echo "Checking fseeko.c:"
-            if grep -q "__GLIBC__.*_IO_ftrylockfile" "$M4_BUILD_DIR/lib/fseeko.c"; then
-              echo "✓ fseeko.c patch verified"
-            else
-              echo "✗ fseeko.c patch verification failed"
-            fi
-            
-            echo "Checking c-stack.c:"
-            if ! grep -q "SIGSTKSZ < 16384" "$M4_BUILD_DIR/lib/c-stack.c"; then
-              echo "✓ c-stack.c patch verified"
-            else
-              echo "✗ c-stack.c patch verification failed"
-            fi
-            
-            echo "=== M4 patches applied successfully ==="
-            
-          else
-            echo "❌ Could not find or create M4 build directory"
-            echo "Available directories in output/build:"
-            ls -la output/build/ | head -10
-            echo "Proceeding with build anyway - may fail"
-          fi
-
-      - name: Build tools with comprehensive gnulib patching
-        run: |
-          cd buildroot-2017.11.1
-          
-          # Define the comprehensive gnulib patch function
-          apply_gnulib_fixes() {
-              local M4_BUILD_DIR="$1"
-              
-              if [ ! -d "$M4_BUILD_DIR" ]; then
-                  echo "M4 build directory not found: $M4_BUILD_DIR"
-                  return 1
-              fi
-              
-              echo "=== Applying comprehensive gnulib fixes to $M4_BUILD_DIR ==="
-              
-              # Fix freadahead.c
-              if [ -f "$M4_BUILD_DIR/lib/freadahead.c" ]; then
-                  echo "Patching freadahead.c..."
-                  cp "$M4_BUILD_DIR/lib/freadahead.c" "$M4_BUILD_DIR/lib/freadahead.c.orig"
-                  
-                  # Find error line and insert glibc support before it
-                  ERROR_LINE=$(grep -n "#error.*port gnulib freadahead" "$M4_BUILD_DIR/lib/freadahead.c" | cut -d: -f1)
-                  if [ -n "$ERROR_LINE" ]; then
-                      head -n $((ERROR_LINE - 2)) "$M4_BUILD_DIR/lib/freadahead.c" > temp_freadahead
-                      cat >> temp_freadahead << 'GLIBC_PATCH'
-          #elif defined __GLIBC__ && defined _IO_ftrylockfile
-            /* GNU libc, BeOS, Haiku, Linux libc5 */
-            struct _IO_FILE *fp = (struct _IO_FILE *) stream;
-            if (fp->_IO_write_ptr > fp->_IO_write_base)
-              return 0;
-            return (fp->_IO_read_end - fp->_IO_read_ptr);
-          GLIBC_PATCH
-                      tail -n +$((ERROR_LINE - 1)) "$M4_BUILD_DIR/lib/freadahead.c" >> temp_freadahead
-                      mv temp_freadahead "$M4_BUILD_DIR/lib/freadahead.c"
-                      echo "✓ Fixed freadahead.c"
-                  else
-                      echo "⚠ Error line not found in freadahead.c"
-                  fi
-              fi
-              
-              # Fix fseeko.c
-              if [ -f "$M4_BUILD_DIR/lib/fseeko.c" ]; then
-                  echo "Patching fseeko.c..."
-                  cp "$M4_BUILD_DIR/lib/fseeko.c" "$M4_BUILD_DIR/lib/fseeko.c.orig"
-                  
-                  ERROR_LINE=$(grep -n "#error.*port gnulib fseeko" "$M4_BUILD_DIR/lib/fseeko.c" | cut -d: -f1)
-                  if [ -n "$ERROR_LINE" ]; then
-                      head -n $((ERROR_LINE - 2)) "$M4_BUILD_DIR/lib/fseeko.c" > temp_fseeko
-                      cat >> temp_fseeko << 'GLIBC_PATCH'
-          #elif defined __GLIBC__ && defined _IO_ftrylockfile
-            /* GNU libc, BeOS, Haiku, Linux libc5 */
-            if (((fp->_flags & _IO_IN_BACKUP) != 0 && fp->_IO_save_base != NULL)
-                || ((fp->_flags & _IO_OUT_BACKUP) != 0 && fp->_IO_backup_base != NULL))
-              return -1;
-            fp->_flags &= ~_IO_EOF_SEEN;
-            return fseeko (fp, offset, whence);
-          GLIBC_PATCH
-                      tail -n +$((ERROR_LINE - 1)) "$M4_BUILD_DIR/lib/fseeko.c" >> temp_fseeko
-                      mv temp_fseeko "$M4_BUILD_DIR/lib/fseeko.c"
-                      echo "✓ Fixed fseeko.c"
-                  else
-                      echo "⚠ Error line not found in fseeko.c"
-                  fi
-              fi
-              
-              # Fix c-stack.c SIGSTKSZ issue
-              if [ -f "$M4_BUILD_DIR/lib/c-stack.c" ]; then
-                  echo "Patching c-stack.c for SIGSTKSZ..."
-                  cp "$M4_BUILD_DIR/lib/c-stack.c" "$M4_BUILD_DIR/lib/c-stack.c.orig"
-                  sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV/' "$M4_BUILD_DIR/lib/c-stack.c"
-                  echo "✓ Fixed c-stack.c"
-              fi
-              
-              # Add additional compatibility defines
-              if [ -f "$M4_BUILD_DIR/lib/config.h" ]; then
-                  if ! grep -q "_GNU_SOURCE" "$M4_BUILD_DIR/lib/config.h"; then
-                      echo "#define _GNU_SOURCE 1" >> "$M4_BUILD_DIR/lib/config.h"
-                      echo "✓ Added _GNU_SOURCE to config.h"
-                  fi
-              fi
-              
-              # Verify patches were applied
-              echo "=== Verifying patches ==="
-              if grep -q "__GLIBC__.*_IO_ftrylockfile" "$M4_BUILD_DIR/lib/freadahead.c"; then
-                  echo "✓ freadahead.c patch verified"
-              else
-                  echo "✗ freadahead.c patch verification failed"
-              fi
-              
-              if grep -q "__GLIBC__.*_IO_ftrylockfile" "$M4_BUILD_DIR/lib/fseeko.c"; then
-                  echo "✓ fseeko.c patch verified"
-              else
-                  echo "✗ fseeko.c patch verification failed"
-              fi
-              
-              if ! grep -q "SIGSTKSZ < 16384" "$M4_BUILD_DIR/lib/c-stack.c"; then
-                  echo "✓ c-stack.c patch verified"
-              else
-                  echo "✗ c-stack.c patch verification failed"
-              fi
-              
-              echo "=== Gnulib patches applied successfully ==="
-          }
-          
-          # Function to handle M4 extraction and patching
-          prepare_and_patch_m4() {
-              echo "=== Preparing M4 for patching ==="
-              
-              # Extract M4 source
-              make host-m4-extract 2>/dev/null || make host-m4-source 2>/dev/null || {
-                  echo "Standard extraction failed, trying manual approach..."
-                  cd output/build
-                  M4_VERSION="1.4.18"
-                  if [ ! -f "m4-${M4_VERSION}.tar.xz" ]; then
-                      echo "Downloading M4 source manually..."
-                      curl -L -o "m4-${M4_VERSION}.tar.xz" "https://ftp.gnu.org/gnu/m4/m4-${M4_VERSION}.tar.xz" || \
-                      curl -L -o "m4-${M4_VERSION}.tar.xz" "https://mirrors.kernel.org/gnu/m4/m4-${M4_VERSION}.tar.xz"
-                  fi
-                  tar -xf "m4-${M4_VERSION}.tar.xz"
-                  mv "m4-${M4_VERSION}" "host-m4-${M4_VERSION}" 2>/dev/null || true
-                  cd ../..
-              }
-              
-              # Find M4 build directory
-              M4_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
-              if [ -z "$M4_DIR" ]; then
-                  echo "❌ Could not find M4 build directory after extraction"
-                  return 1
-              fi
-              
-              echo "Found M4 directory: $M4_DIR"
-              apply_gnulib_fixes "$M4_DIR"
-              return $?
-          }
-          
-          # Set comprehensive compatibility flags
-          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
-          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
-          export CFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
-          export CXXFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
-          export CPPFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
-          export FORCE_UNSAFE_CONFIGURE=1
-          export LC_ALL=C
-          export ac_cv_func_malloc_0_nonnull=yes
-          export ac_cv_func_realloc_0_nonnull=yes
-          
-          echo "=== Build environment configured ==="
-          echo "HOSTCFLAGS: $HOSTCFLAGS"
-          
-          # Calculate optimal parallel jobs
-          NPROC=$(nproc)
-          PARALLEL_JOBS=$((NPROC * 3 / 4))
-          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          echo "Using $PARALLEL_JOBS parallel jobs"
-          
-          # Pre-emptively prepare and patch M4 before any build attempts
-          echo "=== Pre-patching M4 to avoid build failures ==="
-          if prepare_and_patch_m4; then
-              echo "✓ M4 prepared and patched successfully"
-          else
-              echo "⚠ M4 pre-patching failed, will attempt during build"
-          fi
-          
-          # Build with comprehensive error recovery
-          echo "=== Building WireGuard tools ==="
-          BUILD_SUCCESS=0
-          
-          # First attempt - parallel build
-          if make wireguard-tools-rebuild -j$PARALLEL_JOBS V=1; then
-              BUILD_SUCCESS=1
-              echo "✓ Build succeeded on first attempt"
-          else
-              echo "⚠ Parallel build failed, trying single-threaded..."
-              
-              # Second attempt - single-threaded
-              if make wireguard-tools-rebuild -j1 V=1; then
-                  BUILD_SUCCESS=1
-                  echo "✓ Build succeeded with single thread"
-              else
-                  echo "⚠ Build still failing, applying patches and retrying..."
-                  
-                  # Third attempt - ensure patches are applied and retry
-                  if prepare_and_patch_m4; then
-                      echo "Patches applied, retrying build..."
-                      if make wireguard-tools-rebuild -j1 V=1; then
-                          BUILD_SUCCESS=1
-                          echo "✓ Build succeeded after patching"
-                      else
-                          echo "Build still failing, trying clean rebuild..."
-                          make clean
-                          if make wireguard-tools-rebuild -j1 V=1; then
-                              BUILD_SUCCESS=1
-                              echo "✓ Build succeeded after clean rebuild"
-                          fi
-                      fi
-                  else
-                      echo "❌ Could not apply patches"
-                  fi
-              fi
-          fi
-          
-          if [ $BUILD_SUCCESS -eq 0 ]; then
-              echo "❌ All WireGuard tools build attempts failed"
-              exit 1
-          fi
-          
-          echo "=== Building additional tools ==="
-          
-          # Build other tools with the same error recovery approach
-          for tool in bash openresolv libqrencode; do
-              echo "Building $tool..."
-              if make ${tool}-rebuild -j$PARALLEL_JOBS V=1; then
-                  echo "✓ $tool built successfully"
-              else
-                  echo "⚠ $tool parallel build failed, trying single-threaded..."
-                  if make ${tool}-rebuild -j1 V=1; then
-                      echo "✓ $tool built successfully with single thread"
-                  else
-                      echo "⚠ $tool build failed, continuing with other tools"
-                  fi
-              fi
-          done
-          
-          echo "=== Tool building completed ==="
-          
-      - name: Enhanced error reporting for gnulib issues
-        if: failure()
-        run: |
-          echo "=== COMPREHENSIVE BUILD FAILURE ANALYSIS ==="
-          
-          cd buildroot-2017.11.1
-          
-          # Check system info
-          echo "=== System Information ==="
-          uname -a
-          gcc --version
-          glibc --version 2>/dev/null || ldd --version | head -1
-          
-          # Find and analyze M4 build
-          M4_BUILD_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
-          if [ -n "$M4_BUILD_DIR" ]; then
-            echo "=== M4 Analysis ==="
-            echo "M4 build directory: $M4_BUILD_DIR"
-            
-            # Show patch status
-            for file in freadahead.c fseeko.c c-stack.c; do
-              if [ -f "$M4_BUILD_DIR/lib/$file.orig" ]; then
-                echo "=== $file patch status ==="
-                echo "Original file size: $(stat -c%s "$M4_BUILD_DIR/lib/$file.orig" 2>/dev/null || echo 'unknown')"
-                echo "Patched file size: $(stat -c%s "$M4_BUILD_DIR/lib/$file" 2>/dev/null || echo 'unknown')"
-                echo "Key lines around glibc compatibility:"
-                grep -n -A5 -B5 "__GLIBC__" "$M4_BUILD_DIR/lib/$file" 2>/dev/null || echo "No __GLIBC__ references found"
-              else
-                echo "⚠ $file.orig backup not found - patch may not have been applied"
-              fi
-            done
-            
-            # Check for build logs
-            echo "=== M4 build logs ==="
-            find "$M4_BUILD_DIR" -name "*.log" -exec echo "=== {} ===" \; -exec tail -20 {} \; 2>/dev/null || echo "No M4 logs found"
-            
-            # Show actual errors
-            echo "=== Recent error patterns ==="
-            find "$M4_BUILD_DIR" -name "*.log" -exec grep -H "error:" {} \; 2>/dev/null | tail -10 || echo "No specific errors found in M4 logs"
-            
-          else
-            echo "❌ M4 build directory not found"
-          fi
-          
-          # General build failure analysis
-          echo "=== General build error analysis ==="
-          find output/build -name "*.log" -exec echo "=== {} ===" \; -exec tail -10 {} \; 2>/dev/null | head -100
-          
-          echo "=== Available tools after partial build ==="
-          find output/target -name "wg" -o -name "bash" -o -name "qrencode" -o -name "resolvconf" 2>/dev/null || echo "No tools found"
-          
+          cp unifios/bases/${{ env.BASE }}/buildroot-config.txt buildroot-2017.11.1/.config
+          cp unifios/bases/${{ env.BASE }}/kernel-config buildroot-2017.11.1/kernel-config
+      - name: Build AmnesiaWG tools
+        run: cd buildroot-2017.11.1 && make wireguard-tools-rebuild # -> output/target/usr/bin/wg
+      - name: Build bash
+        run: cd buildroot-2017.11.1 && make bash-rebuild # -> output/target/bin/bash
+      - name: Build resolvconf
+        run: cd buildroot-2017.11.1 && make openresolv-rebuild # -> output/target/sbin/resolvconf
+      - name: Build qrencode
+        run: cd buildroot-2017.11.1 && make libqrencode-rebuild # -> output/target/usr/bin/qrencode
       - name: Collect tools
         run: |
           mkdir -p tools
-          cd buildroot-2017.11.1
-          
-          echo "=== Collecting built tools ==="
-          
-          # Copy tools with error checking
-          if [ -f "output/target/usr/bin/wg" ]; then
-            cp output/target/usr/bin/wg ../tools/
-            echo "✓ wg tool collected"
-          else
-            echo "❌ wg tool not found"
-            ls -la output/target/usr/bin/ | grep wg || echo "No wg files found"
-            exit 1
-          fi
-          
-          if [ -f "output/target/bin/bash" ]; then
-            cp output/target/bin/bash ../tools/
-            echo "✓ bash collected"
-          else
-            echo "⚠ bash not found, continuing"
-          fi
-          
-          if [ -f "output/target/usr/bin/qrencode" ]; then
-            cp output/target/usr/bin/qrencode ../tools/
-            echo "✓ qrencode collected"
-          else
-            echo "⚠ qrencode not found, continuing"
-          fi
-          
-          if [ -f "output/target/sbin/resolvconf" ]; then
-            cp output/target/sbin/resolvconf ../tools/
-            echo "✓ resolvconf collected"
-          else
-            echo "⚠ resolvconf not found, continuing"
-          fi
-          
-          if [ -f "output/target/etc/resolvconf.conf" ]; then
-            cp output/target/etc/resolvconf.conf ../tools/
-            echo "✓ resolvconf.conf collected"
-          else
-            echo "⚠ resolvconf.conf not found, continuing"
-          fi
-          
-          # Check for wg-quick in the build directory - try both locations
-          if [ -f "output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
-            cp output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
-            echo "✓ wg-quick collected"
-          elif [ -f "output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
-            cp output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
-            echo "✓ wg-quick collected (amneziawg path)"
-          else
-            echo "⚠ wg-quick not found, checking available directories..."
-            find output/build -name "linux.bash" -type f || echo "No wg-quick script found"
-          fi
-          
-          echo "=== Final tools inventory ==="
-          ls -la ../tools/
-          
+          cp buildroot-2017.11.1/output/target/usr/bin/wg tools/
+          cp buildroot-2017.11.1/output/target/bin/bash tools/
+          cp buildroot-2017.11.1/output/target/usr/bin/qrencode tools/
+          cp buildroot-2017.11.1/output/target/sbin/resolvconf tools/
+          cp buildroot-2017.11.1/output/target/etc/resolvconf.conf tools/
+          cp buildroot-2017.11.1/output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash tools/wg-quick
       - name: Store tools
         uses: actions/upload-artifact@v4
         with:
           name: tools
           path: tools
-
   udm-package:
     needs: [udm-build-tools, udm-build-modules]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    
     steps:
-      - uses: actions/checkout@v4
-      
+      - uses: actions/checkout@v2
       - name: Prepare
         run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
-        
-      - name: Download all modules
-        run: |
-          mkdir -p temp-modules
-          for base in udm-1.9.0-10 udm-1.10.0-8 udm-1.10.0-12 udm-se-2.2.4 udr-2.2.12; do
-            echo "Downloading modules for $base"
-          done
-          
-      - name: Download udm-1.9.0-10 modules
+      - name: Restore modules
         uses: actions/download-artifact@v4
         with:
-          name: modules-udm-1.9.0-10
-          path: temp-modules/udm-1.9.0-10
-        continue-on-error: true
-        
-      - name: Download udm-1.10.0-8 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-1.10.0-8
-          path: temp-modules/udm-1.10.0-8
-        continue-on-error: true
-        
-      - name: Download udm-1.10.0-12 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-1.10.0-12
-          path: temp-modules/udm-1.10.0-12
-        continue-on-error: true
-        
-      - name: Download udm-se-2.2.4 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-se-2.2.4
-          path: temp-modules/udm-se-2.2.4
-        continue-on-error: true
-        
-      - name: Download udr-2.2.12 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udr-2.2.12
-          path: temp-modules/udr-2.2.12
-        continue-on-error: true
-        
-      - name: Consolidate modules
-        run: |
-          find temp-modules -name "*.ko" -exec cp {} package/wireguard/modules/ \;
-          echo "Consolidated modules:"
-          ls -la package/wireguard/modules/
-          
+          name: modules
+          path: package/wireguard/modules
       - name: Restore tools
         uses: actions/download-artifact@v4
         with:
           name: tools
           path: package/wireguard/tools
-          
       - name: Add setup
         run: cp unifios/setup_wireguard.sh package/wireguard/
-        
       - name: Fix permissions
         run: |
-          if [ -f "package/wireguard/tools/resolvconf.conf" ]; then
-            mv package/wireguard/tools/resolvconf.conf package/wireguard/etc
-          fi
-          chmod +x package/wireguard/tools/* package/wireguard/setup_wireguard.sh 2>/dev/null || true
+          mv package/wireguard/tools/resolvconf.conf package/wireguard/etc
+          chmod +x package/wireguard/tools/* package/wireguard/setup_wireguard.sh
           sudo chown -R root:root package/wireguard
-          
       - name: Package
         run: tar -C package -czf UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz ./
-        
       - name: Store package
         uses: actions/upload-artifact@v4
         with:
-          name: release-unifios
+          name: release_unifios
           path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
+
+  release:
+    runs-on: ubuntu-24.04
+    needs:
+      - package
+      - udm-package
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Create Release
+        id: create_release
+        uses: fossoreslp/release-artifacts@v1
+        with:
+          title: AmneziaWG ${{ env.MODULE_VERSION }} ${{ env.TOOLS_VERSION }}
+          template: ci/release_body.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+          variables: ${{ toJSON(env) }}
