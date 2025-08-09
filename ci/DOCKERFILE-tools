@@ -50,4 +50,4 @@ ENV TARGET="$ARCH-linux-musl"
 
 COPY ci/tools-toolchain.sh /build_toolchain.sh
 
-RUN chmod +x /build_toolchain.sh && /build_toolchain.sh
+RUN chmod +x /build_toolchain.sh && ls -la /build_toolchain.sh && /bin/bash /build_toolchain.sh
