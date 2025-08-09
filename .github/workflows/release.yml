@@ -188,15 +188,15 @@ jobs:
           # Create release body
           cat > RELEASE_BODY.md << 'EOF'
           **Changelog**
-          - Updated module to ${{ env.MODULE_VERSION }}
-          - Updated tools to ${{ env.TOOLS_VERSION }}
+          - Updated AmneziaWG kernel module to ${{ env.MODULE_VERSION }}
+          - Updated AmneziaWG tools to ${{ env.TOOLS_VERSION }}
           
           ## Versions
           
           | Component | Version |
           |-----------|---------|
-          | Module | ${{ env.MODULE_VERSION }} |
-          | Tools | ${{ env.TOOLS_VERSION }} |
+          | AmneziaWG Module | ${{ env.MODULE_VERSION }} |
+          | AmneziaWG Tools | ${{ env.TOOLS_VERSION }} |
           | EdgeOS v1 | ${{ env.FIRMWARE_ER_v1 }} |
           | EdgeOS v2 | ${{ env.FIRMWARE_ER_v2 }} |
           | USG firmware | ${{ env.FIRMWARE_UGW }} |
@@ -232,7 +232,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ steps.context.outputs.tag }}
-          name: "Amnezia-WG ${{ env.MODULE_VERSION }}"
+          name: "AmneziaWG ${{ env.MODULE_VERSION }}"
           bodyFile: RELEASE_BODY.md
           artifacts: "release-assets/*"
           draft: false
@@ -252,7 +252,7 @@ jobs:
           echo ""
           echo "📋 Release Details:"
           echo "  • Tag: $TAG" 
-          echo "  • Name: Amnezia-WG ${{ env.MODULE_VERSION }}"
+          echo "  • Name: AmneziaWG ${{ env.MODULE_VERSION }}"
           echo "  • Type: $RELEASE_TYPE release"
           echo "  • Assets: $ASSET_COUNT files"
           echo ""
