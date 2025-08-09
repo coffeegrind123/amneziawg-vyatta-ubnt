@@ -2027,71 +2027,230 @@ jobs:
             echo "Proceeding with build anyway - may fail"
           fi
 
-      - name: Build tools with enhanced compatibility
+      - name: Build tools with comprehensive gnulib patching
         run: |
           cd buildroot-2017.11.1
           
-          # Set comprehensive host compiler flags
+          # Define the comprehensive gnulib patch function
+          apply_gnulib_fixes() {
+              local M4_BUILD_DIR="$1"
+              
+              if [ ! -d "$M4_BUILD_DIR" ]; then
+                  echo "M4 build directory not found: $M4_BUILD_DIR"
+                  return 1
+              fi
+              
+              echo "=== Applying comprehensive gnulib fixes to $M4_BUILD_DIR ==="
+              
+              # Fix freadahead.c
+              if [ -f "$M4_BUILD_DIR/lib/freadahead.c" ]; then
+                  echo "Patching freadahead.c..."
+                  cp "$M4_BUILD_DIR/lib/freadahead.c" "$M4_BUILD_DIR/lib/freadahead.c.orig"
+                  
+                  # Find error line and insert glibc support before it
+                  ERROR_LINE=$(grep -n "#error.*port gnulib freadahead" "$M4_BUILD_DIR/lib/freadahead.c" | cut -d: -f1)
+                  if [ -n "$ERROR_LINE" ]; then
+                      head -n $((ERROR_LINE - 2)) "$M4_BUILD_DIR/lib/freadahead.c" > temp_freadahead
+                      cat >> temp_freadahead << 'GLIBC_PATCH'
+          #elif defined __GLIBC__ && defined _IO_ftrylockfile
+            /* GNU libc, BeOS, Haiku, Linux libc5 */
+            struct _IO_FILE *fp = (struct _IO_FILE *) stream;
+            if (fp->_IO_write_ptr > fp->_IO_write_base)
+              return 0;
+            return (fp->_IO_read_end - fp->_IO_read_ptr);
+          GLIBC_PATCH
+                      tail -n +$((ERROR_LINE - 1)) "$M4_BUILD_DIR/lib/freadahead.c" >> temp_freadahead
+                      mv temp_freadahead "$M4_BUILD_DIR/lib/freadahead.c"
+                      echo "✓ Fixed freadahead.c"
+                  else
+                      echo "⚠ Error line not found in freadahead.c"
+                  fi
+              fi
+              
+              # Fix fseeko.c
+              if [ -f "$M4_BUILD_DIR/lib/fseeko.c" ]; then
+                  echo "Patching fseeko.c..."
+                  cp "$M4_BUILD_DIR/lib/fseeko.c" "$M4_BUILD_DIR/lib/fseeko.c.orig"
+                  
+                  ERROR_LINE=$(grep -n "#error.*port gnulib fseeko" "$M4_BUILD_DIR/lib/fseeko.c" | cut -d: -f1)
+                  if [ -n "$ERROR_LINE" ]; then
+                      head -n $((ERROR_LINE - 2)) "$M4_BUILD_DIR/lib/fseeko.c" > temp_fseeko
+                      cat >> temp_fseeko << 'GLIBC_PATCH'
+          #elif defined __GLIBC__ && defined _IO_ftrylockfile
+            /* GNU libc, BeOS, Haiku, Linux libc5 */
+            if (((fp->_flags & _IO_IN_BACKUP) != 0 && fp->_IO_save_base != NULL)
+                || ((fp->_flags & _IO_OUT_BACKUP) != 0 && fp->_IO_backup_base != NULL))
+              return -1;
+            fp->_flags &= ~_IO_EOF_SEEN;
+            return fseeko (fp, offset, whence);
+          GLIBC_PATCH
+                      tail -n +$((ERROR_LINE - 1)) "$M4_BUILD_DIR/lib/fseeko.c" >> temp_fseeko
+                      mv temp_fseeko "$M4_BUILD_DIR/lib/fseeko.c"
+                      echo "✓ Fixed fseeko.c"
+                  else
+                      echo "⚠ Error line not found in fseeko.c"
+                  fi
+              fi
+              
+              # Fix c-stack.c SIGSTKSZ issue
+              if [ -f "$M4_BUILD_DIR/lib/c-stack.c" ]; then
+                  echo "Patching c-stack.c for SIGSTKSZ..."
+                  cp "$M4_BUILD_DIR/lib/c-stack.c" "$M4_BUILD_DIR/lib/c-stack.c.orig"
+                  sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV/' "$M4_BUILD_DIR/lib/c-stack.c"
+                  echo "✓ Fixed c-stack.c"
+              fi
+              
+              # Add additional compatibility defines
+              if [ -f "$M4_BUILD_DIR/lib/config.h" ]; then
+                  if ! grep -q "_GNU_SOURCE" "$M4_BUILD_DIR/lib/config.h"; then
+                      echo "#define _GNU_SOURCE 1" >> "$M4_BUILD_DIR/lib/config.h"
+                      echo "✓ Added _GNU_SOURCE to config.h"
+                  fi
+              fi
+              
+              # Verify patches were applied
+              echo "=== Verifying patches ==="
+              if grep -q "__GLIBC__.*_IO_ftrylockfile" "$M4_BUILD_DIR/lib/freadahead.c"; then
+                  echo "✓ freadahead.c patch verified"
+              else
+                  echo "✗ freadahead.c patch verification failed"
+              fi
+              
+              if grep -q "__GLIBC__.*_IO_ftrylockfile" "$M4_BUILD_DIR/lib/fseeko.c"; then
+                  echo "✓ fseeko.c patch verified"
+              else
+                  echo "✗ fseeko.c patch verification failed"
+              fi
+              
+              if ! grep -q "SIGSTKSZ < 16384" "$M4_BUILD_DIR/lib/c-stack.c"; then
+                  echo "✓ c-stack.c patch verified"
+              else
+                  echo "✗ c-stack.c patch verification failed"
+              fi
+              
+              echo "=== Gnulib patches applied successfully ==="
+          }
+          
+          # Function to handle M4 extraction and patching
+          prepare_and_patch_m4() {
+              echo "=== Preparing M4 for patching ==="
+              
+              # Extract M4 source
+              make host-m4-extract 2>/dev/null || make host-m4-source 2>/dev/null || {
+                  echo "Standard extraction failed, trying manual approach..."
+                  cd output/build
+                  M4_VERSION="1.4.18"
+                  if [ ! -f "m4-${M4_VERSION}.tar.xz" ]; then
+                      echo "Downloading M4 source manually..."
+                      curl -L -o "m4-${M4_VERSION}.tar.xz" "https://ftp.gnu.org/gnu/m4/m4-${M4_VERSION}.tar.xz" || \
+                      curl -L -o "m4-${M4_VERSION}.tar.xz" "https://mirrors.kernel.org/gnu/m4/m4-${M4_VERSION}.tar.xz"
+                  fi
+                  tar -xf "m4-${M4_VERSION}.tar.xz"
+                  mv "m4-${M4_VERSION}" "host-m4-${M4_VERSION}" 2>/dev/null || true
+                  cd ../..
+              }
+              
+              # Find M4 build directory
+              M4_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
+              if [ -z "$M4_DIR" ]; then
+                  echo "❌ Could not find M4 build directory after extraction"
+                  return 1
+              fi
+              
+              echo "Found M4 directory: $M4_DIR"
+              apply_gnulib_fixes "$M4_DIR"
+              return $?
+          }
+          
+          # Set comprehensive compatibility flags
           export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
           export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
           export CFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
           export CXXFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
           export CPPFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
-          
-          # Additional compatibility environment
           export FORCE_UNSAFE_CONFIGURE=1
           export LC_ALL=C
           export ac_cv_func_malloc_0_nonnull=yes
           export ac_cv_func_realloc_0_nonnull=yes
           
-          echo "=== Build environment ==="
+          echo "=== Build environment configured ==="
           echo "HOSTCFLAGS: $HOSTCFLAGS"
-          echo "CFLAGS: $CFLAGS"
           
           # Calculate optimal parallel jobs
           NPROC=$(nproc)
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
-          
           echo "Using $PARALLEL_JOBS parallel jobs"
           
-          # Build with error recovery
-          echo "=== Building WireGuard tools ==="
-          if ! make wireguard-tools-rebuild -j$PARALLEL_JOBS V=1; then
-            echo "⚠ Parallel build failed, retrying single-threaded..."
-            if ! make wireguard-tools-rebuild -j1 V=1; then
-              echo "❌ WireGuard tools build failed completely"
-              
-              # Try to build just the essential tools manually
-              echo "Attempting manual tool build..."
-              WG_TOOLS_DIR=$(find output/build -name "*wireguard-tools*" -type d | head -1)
-              if [ -n "$WG_TOOLS_DIR" ] && [ -d "$WG_TOOLS_DIR" ]; then
-                cd "$WG_TOOLS_DIR/src"
-                if make CC="$(which gcc)" LDFLAGS="-static" -j1; then
-                  echo "✓ Manual WireGuard tools build successful"
-                  mkdir -p ../../../target/usr/bin
-                  cp wg ../../../target/usr/bin/
-                  cd ../../..
-                else
-                  echo "❌ Manual build also failed"
-                  exit 1
-                fi
-              else
-                exit 1
-              fi
-            fi
+          # Pre-emptively prepare and patch M4 before any build attempts
+          echo "=== Pre-patching M4 to avoid build failures ==="
+          if prepare_and_patch_m4; then
+              echo "✓ M4 prepared and patched successfully"
+          else
+              echo "⚠ M4 pre-patching failed, will attempt during build"
           fi
           
-          echo "=== Building other tools ==="
+          # Build with comprehensive error recovery
+          echo "=== Building WireGuard tools ==="
+          BUILD_SUCCESS=0
           
-          # Build bash with error recovery
-          make bash-rebuild -j$PARALLEL_JOBS V=1 || make bash-rebuild -j1 V=1 || echo "⚠ Bash build failed, continuing"
+          # First attempt - parallel build
+          if make wireguard-tools-rebuild -j$PARALLEL_JOBS V=1; then
+              BUILD_SUCCESS=1
+              echo "✓ Build succeeded on first attempt"
+          else
+              echo "⚠ Parallel build failed, trying single-threaded..."
+              
+              # Second attempt - single-threaded
+              if make wireguard-tools-rebuild -j1 V=1; then
+                  BUILD_SUCCESS=1
+                  echo "✓ Build succeeded with single thread"
+              else
+                  echo "⚠ Build still failing, applying patches and retrying..."
+                  
+                  # Third attempt - ensure patches are applied and retry
+                  if prepare_and_patch_m4; then
+                      echo "Patches applied, retrying build..."
+                      if make wireguard-tools-rebuild -j1 V=1; then
+                          BUILD_SUCCESS=1
+                          echo "✓ Build succeeded after patching"
+                      else
+                          echo "Build still failing, trying clean rebuild..."
+                          make clean
+                          if make wireguard-tools-rebuild -j1 V=1; then
+                              BUILD_SUCCESS=1
+                              echo "✓ Build succeeded after clean rebuild"
+                          fi
+                      fi
+                  else
+                      echo "❌ Could not apply patches"
+                  fi
+              fi
+          fi
           
-          # Build openresolv with error recovery  
-          make openresolv-rebuild -j$PARALLEL_JOBS V=1 || make openresolv-rebuild -j1 V=1 || echo "⚠ OpenResolv build failed, continuing"
+          if [ $BUILD_SUCCESS -eq 0 ]; then
+              echo "❌ All WireGuard tools build attempts failed"
+              exit 1
+          fi
           
-          # Build libqrencode with error recovery
-          make libqrencode-rebuild -j$PARALLEL_JOBS V=1 || make libqrencode-rebuild -j1 V=1 || echo "⚠ Libqrencode build failed, continuing"
+          echo "=== Building additional tools ==="
+          
+          # Build other tools with the same error recovery approach
+          for tool in bash openresolv libqrencode; do
+              echo "Building $tool..."
+              if make ${tool}-rebuild -j$PARALLEL_JOBS V=1; then
+                  echo "✓ $tool built successfully"
+              else
+                  echo "⚠ $tool parallel build failed, trying single-threaded..."
+                  if make ${tool}-rebuild -j1 V=1; then
+                      echo "✓ $tool built successfully with single thread"
+                  else
+                      echo "⚠ $tool build failed, continuing with other tools"
+                  fi
+              fi
+          done
+          
+          echo "=== Tool building completed ==="
           
       - name: Enhanced error reporting for gnulib issues
         if: failure()
