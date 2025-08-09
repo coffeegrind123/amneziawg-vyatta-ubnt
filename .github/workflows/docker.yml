@@ -40,7 +40,7 @@ jobs:
         env:
           ARCH: ${{ matrix.tag }}
           TARGET: ${{ matrix.tag }}-linux-musl
-        run: docker build --pull -t "$(echo $IMAGE | tr '[:upper:]' '[:lower:]')" -f ci/DOCKERFILE-tools .
+        run: docker build --pull -t "$(echo $IMAGE | tr '[:upper:]' '[:lower:]')" --build-arg ARCH=${{ matrix.tag }} -f ci/DOCKERFILE-tools .
 
       - name: Log into GitHub Container Registry
       # TODO: Create a PAT with `read:packages` and `write:packages` scopes and save it as an Actions secret `CR_PAT`
