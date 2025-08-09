@@ -60,6 +60,8 @@ jobs:
           tar -xf src.tar.bz2 --wildcards 'source/kernel_*' --strip-components 1
           mv kernel_* kernel.tar.gz
           tar -xf kernel.tar.gz --strip-components 1
+          # Fix dtc multiple definition issue with newer build tools
+          patch -p1 < dtc-multiple-definition.patch || true
           if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
@@ -349,6 +351,8 @@ jobs:
         run: |
           cp unifios/bases/${{ env.BASE }}/buildroot-config.txt buildroot-2017.11.1/.config
           cp unifios/bases/${{ env.BASE }}/kernel-config buildroot-2017.11.1/kernel-config
+          cd buildroot-2017.11.1
+          make oldconfig
       - name: Build AmnesiaWG tools
         run: cd buildroot-2017.11.1 && make wireguard-tools-rebuild # -> output/target/usr/bin/wg
       - name: Build bash
