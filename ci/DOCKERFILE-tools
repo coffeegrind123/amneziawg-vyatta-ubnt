@@ -45,6 +45,7 @@ ENV MUSL_VER=1.1.22
 
 ENV PATH="/opt/cross/bin:${PATH}"
 
+ARG ARCH
 ENV TARGET="$ARCH-linux-musl"
 
 COPY ci/tools-toolchain.sh /build_toolchain.sh
