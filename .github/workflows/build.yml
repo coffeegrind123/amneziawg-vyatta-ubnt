@@ -152,19 +152,18 @@ jobs:
           path: module/src/wireguard.ko
 
   tools:
+    needs: docker
     runs-on: ubuntu-24.04
     container:
-      image: ${{ matrix.image }}
+      image: ghcr.io/${{ github.repository_owner }}/ubnt-build:${{ matrix.arch }}-tools
 
     strategy:
       matrix:
         include:
           - arch: mips
             target: mips-linux-musl
-            image: lochnair/musl-buildenv:mips # Will be: mips-tools
           - arch: mipsel
             target: mipsel-linux-musl
-            image: lochnair/musl-buildenv:mipsel # Will be: mipsel-tools
     steps:
       - uses: actions/checkout@v2
       - name: Build tools
