@@ -914,6 +914,218 @@ jobs:
           PARALLEL_JOBS=$((NPROC * 3 / 4))
           [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
           
+          echo "Using $PARALLEL_JOBS parallel jobs"
+          
+          # Build with error recovery
+          echo "=== Building WireGuard tools ==="
+          if ! make wireguard-tools-rebuild -j$PARALLEL_JOBS V=1; then
+            echo "⚠ Parallel build failed, retrying single-threaded..."
+            if ! make wireguard-tools-rebuild -j1 V=1; then
+              echo "❌ WireGuard tools build failed completely"
+              
+              # Try to build just the essential tools manually
+              echo "Attempting manual tool build..."
+              WG_TOOLS_DIR=$(find output/build -name "*wireguard-tools*" -type d | head -1)
+              if [ -n "$WG_TOOLS_DIR" ] && [ -d "$WG_TOOLS_DIR" ]; then
+                cd "$WG_TOOLS_DIR/src"
+                if make CC="$(which gcc)" LDFLAGS="-static" -j1; then
+                  echo "✓ Manual WireGuard tools build successful"
+                  mkdir -p ../../../target/usr/bin
+                  cp wg ../../../target/usr/bin/
+                  cd ../../..
+                else
+                  echo "❌ Manual build also failed"
+                  exit 1
+                fi
+              else
+                exit 1
+              fi
+            fi
+          fi
+          
+          echo "=== Building other tools ==="
+          
+          # Build bash with error recovery
+          make bash-rebuild -j$PARALLEL_JOBS V=1 || make bash-rebuild -j1 V=1 || echo "⚠ Bash build failed, continuing"
+          
+          # Build openresolv with error recovery  
+          make openresolv-rebuild -j$PARALLEL_JOBS V=1 || make openresolv-rebuild -j1 V=1 || echo "⚠ OpenResolv build failed, continuing"
+          
+          # Build libqrencode with error recovery
+          make libqrencode-rebuild -j$PARALLEL_JOBS V=1 || make libqrencode-rebuild -j1 V=1 || echo "⚠ Libqrencode build failed, continuing"
+          
+      - name: Enhanced error reporting for gnulib issues
+        if: failure()
+        run: |
+          echo "=== COMPREHENSIVE BUILD FAILURE ANALYSIS ==="
+          
+          cd buildroot-2017.11.1
+          
+          # Check system info
+          echo "=== System Information ==="
+          uname -a
+          gcc --version
+          glibc --version 2>/dev/null || ldd --version | head -1
+          
+          # General build failure analysis
+          echo "=== General build error analysis ==="
+          find output/build -name "*.log" -exec echo "=== {} ===" \; -exec tail -10 {} \; 2>/dev/null | head -100
+          
+          echo "=== Available tools after partial build ==="
+          find output/target -name "wg" -o -name "bash" -o -name "qrencode" -o -name "resolvconf" 2>/dev/null || echo "No tools found"
+          
+      - name: Collect tools
+        run: |
+          mkdir -p tools
+          cd buildroot-2017.11.1
+          
+          echo "=== Collecting built tools ==="
+          
+          # Copy tools with error checking
+          if [ -f "output/target/usr/bin/wg" ]; then
+            cp output/target/usr/bin/wg ../tools/
+            echo "✓ wg tool collected"
+          else
+            echo "❌ wg tool not found"
+            ls -la output/target/usr/bin/ | grep wg || echo "No wg files found"
+            exit 1
+          fi
+          
+          if [ -f "output/target/bin/bash" ]; then
+            cp output/target/bin/bash ../tools/
+            echo "✓ bash collected"
+          else
+            echo "⚠ bash not found, continuing"
+          fi
+          
+          if [ -f "output/target/usr/bin/qrencode" ]; then
+            cp output/target/usr/bin/qrencode ../tools/
+            echo "✓ qrencode collected"
+          else
+            echo "⚠ qrencode not found, continuing"
+          fi
+          
+          if [ -f "output/target/sbin/resolvconf" ]; then
+            cp output/target/sbin/resolvconf ../tools/
+            echo "✓ resolvconf collected"
+          else
+            echo "⚠ resolvconf not found, continuing"
+          fi
+          
+          if [ -f "output/target/etc/resolvconf.conf" ]; then
+            cp output/target/etc/resolvconf.conf ../tools/
+            echo "✓ resolvconf.conf collected"
+          else
+            echo "⚠ resolvconf.conf not found, continuing"
+          fi
+          
+          # Check for wg-quick in the build directory - try both locations
+          if [ -f "output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
+            cp output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
+            echo "✓ wg-quick collected"
+          elif [ -f "output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
+            cp output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
+            echo "✓ wg-quick collected (amneziawg path)"
+          else
+            echo "⚠ wg-quick not found, checking available directories..."
+            find output/build -name "linux.bash" -type f || echo "No wg-quick script found"
+          fi
+          
+          echo "=== Final tools inventory ==="
+          ls -la ../tools/
+          
+      - name: Store tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: tools
+          path: tools
+
+  udm-package:
+    needs: [udm-build-tools, udm-build-modules]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Prepare
+        run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
+        
+      - name: Download all modules
+        run: |
+          mkdir -p temp-modules
+          for base in udm-1.9.0-10 udm-1.10.0-8 udm-1.10.0-12 udm-se-2.2.4 udr-2.2.12; do
+            echo "Downloading modules for $base"
+          done
+          
+      - name: Download udm-1.9.0-10 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-1.9.0-10
+          path: temp-modules/udm-1.9.0-10
+        continue-on-error: true
+        
+      - name: Download udm-1.10.0-8 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-1.10.0-8
+          path: temp-modules/udm-1.10.0-8
+        continue-on-error: true
+        
+      - name: Download udm-1.10.0-12 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-1.10.0-12
+          path: temp-modules/udm-1.10.0-12
+        continue-on-error: true
+        
+      - name: Download udm-se-2.2.4 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udm-se-2.2.4
+          path: temp-modules/udm-se-2.2.4
+        continue-on-error: true
+        
+      - name: Download udr-2.2.12 modules
+        uses: actions/download-artifact@v4
+        with:
+          name: modules-udr-2.2.12
+          path: temp-modules/udr-2.2.12
+        continue-on-error: true
+        
+      - name: Consolidate modules
+        run: |
+          find temp-modules -name "*.ko" -exec cp {} package/wireguard/modules/ \;
+          echo "Consolidated modules:"
+          ls -la package/wireguard/modules/
+          
+      - name: Restore tools
+        uses: actions/download-artifact@v4
+        with:
+          name: tools
+          path: package/wireguard/tools
+          
+      - name: Add setup
+        run: cp unifios/setup_wireguard.sh package/wireguard/
+        
+      - name: Fix permissions
+        run: |
+          if [ -f "package/wireguard/tools/resolvconf.conf" ]; then
+            mv package/wireguard/tools/resolvconf.conf package/wireguard/etc
+          fi
+          chmod +x package/wireguard/tools/* package/wireguard/setup_wireguard.sh 2>/dev/null || true
+          sudo chown -R root:root package/wireguard
+          
+      - name: Package
+        run: tar -C package -czf UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz ./
+        
+      - name: Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-unifios
+          path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
+          [ $PARALLEL_JOBS -lt 1 ] && PARALLEL_JOBS=1
+          
           echo "=== Starting module build with compatibility mode ==="
           echo "Kernel directory: $KERNELDIR"
           echo "Cross compiler: $CROSS_COMPILE"
@@ -1793,508 +2005,84 @@ jobs:
       - name: Extract buildroot
         run: tar -xf buildroot.tar
         
-      - name: Configure buildroot
+      - name: Configure buildroot and disable problematic packages
         run: |
           cd buildroot-2017.11.1
           
-          # Ensure output directory structure exists
-          mkdir -p output/build output/target output/host output/staging
+          echo "=== CONFIGURING BUILDROOT AND DISABLING PROBLEMATIC PACKAGES ==="
           
-          # Recreate the .br-external.mk file if it doesn't exist
-          if [ ! -f "output/.br-external.mk" ]; then
-            echo "# This file is automatically generated by buildroot" > output/.br-external.mk
-            echo "# DO NOT EDIT" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of directories containing external packages" >> output/.br-external.mk
-            echo "BR2_EXTERNAL :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external packages" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_NAMES :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external makefiles" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_MKS :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external package descriptions" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_DESCS :=" >> output/.br-external.mk
-            echo "" >> output/.br-external.mk
-            echo "# List of external package dependencies" >> output/.br-external.mk
-            echo "BR2_EXTERNAL_DEPS :=" >> output/.br-external.mk
+          # Copy base configuration files
+          if [ ! -f "../unifios/bases/${{ env.BASE }}/buildroot-config.txt" ]; then
+            echo "ERROR: buildroot-config.txt not found for ${{ env.BASE }}"
+            exit 1
+          fi
+          
+          if [ ! -f "../unifios/bases/${{ env.BASE }}/kernel-config" ]; then
+            echo "ERROR: kernel-config not found for ${{ env.BASE }}"
+            exit 1
           fi
           
           # Copy configs
           cp ../unifios/bases/${{ env.BASE }}/buildroot-config.txt .config
           cp ../unifios/bases/${{ env.BASE }}/kernel-config kernel-config
           
-          # Configure buildroot
-          make olddefconfig
-
-      - name: Apply robust gnulib fixes for m4
-        run: |
-          cd buildroot-2017.11.1
+          # Disable problematic host packages that aren't essential
+          echo "Disabling problematic host packages..."
           
-          echo "=== APPLYING ROBUST GNULIB FIXES ==="
+          # Disable ccache (just a performance optimization)
+          sed -i 's/BR2_CCACHE=y/# BR2_CCACHE is not set/' .config
+          sed -i 's/BR2_PACKAGE_HOST_CCACHE=y/# BR2_PACKAGE_HOST_CCACHE is not set/' .config
           
-          # Strategy 1: Use system m4 if possible (cleanest solution)
+          # Use system tools where possible
           if command -v m4 >/dev/null 2>&1; then
-            echo "System m4 available: $(m4 --version | head -1)"
-            
-            # Disable host-m4 in buildroot config
-            if [ -f .config ]; then
-              sed -i 's/BR2_PACKAGE_HOST_M4=y/# BR2_PACKAGE_HOST_M4 is not set/' .config
-              echo "Disabled host-m4 build, using system m4"
-              
-              # Create host tools directory and symlink
-              mkdir -p output/host/bin
-              ln -sf $(which m4) output/host/bin/m4
-              
-              # Update config to reflect changes
-              make olddefconfig
-              
-              # Verify m4 is disabled
-              if ! grep -q "BR2_PACKAGE_HOST_M4=y" .config; then
-                echo "✓ Successfully configured to use system m4"
-                echo "GNULIB_FIX_APPLIED=system_m4" >> $GITHUB_ENV
-                exit 0
-              fi
-            fi
+            echo "Using system m4..."
+            sed -i 's/BR2_PACKAGE_HOST_M4=y/# BR2_PACKAGE_HOST_M4 is not set/' .config
+            mkdir -p output/host/bin
+            ln -sf $(which m4) output/host/bin/m4
           fi
           
-          echo "System m4 not available or config change failed, applying patches..."
-          
-          # Strategy 2: Force extract m4 and apply comprehensive patches
-          echo "=== Extracting M4 source ==="
-          
-          # Clean any existing m4 build
-          rm -rf output/build/host-m4-* 2>/dev/null || true
-          
-          # Force source extraction
-          make host-m4-source || make host-m4-extract || {
-            echo "Standard extraction failed, trying manual download..."
-            
-            mkdir -p dl output/build
-            cd dl
-            
-            # Download m4 source manually if needed
-            if [ ! -f "m4-1.4.18.tar.xz" ]; then
-              curl -L -f -o m4-1.4.18.tar.xz "https://ftp.gnu.org/gnu/m4/m4-1.4.18.tar.xz" || \
-              curl -L -f -o m4-1.4.18.tar.xz "https://mirrors.kernel.org/gnu/m4/m4-1.4.18.tar.xz"
-            fi
-            
-            cd ../output/build
-            tar -xf ../../dl/m4-1.4.18.tar.xz
-            mv m4-1.4.18 host-m4-1.4.18
-            cd ../..
-          }
-          
-          # Find the M4 source directory
-          M4_DIR="output/build/host-m4-1.4.18"
-          
-          if [ ! -d "$M4_DIR" ]; then
-            echo "ERROR: M4 source directory not found after extraction"
-            ls -la output/build/
-            exit 1
+          if command -v autoconf >/dev/null 2>&1; then
+            echo "Using system autotools..."
+            sed -i 's/BR2_PACKAGE_HOST_AUTOCONF=y/# BR2_PACKAGE_HOST_AUTOCONF is not set/' .config || true
+            sed -i 's/BR2_PACKAGE_HOST_AUTOMAKE=y/# BR2_PACKAGE_HOST_AUTOMAKE is not set/' .config || true
+            ln -sf $(which autoconf) output/host/bin/autoconf 2>/dev/null || true
+            ln -sf $(which automake) output/host/bin/automake 2>/dev/null || true
           fi
           
-          echo "Found M4 directory: $M4_DIR"
+          # Configure buildroot with the changes
+          echo "Applying configuration changes..."
+          make olddefconfig
           
-          # Strategy 3: Apply bulletproof patches
-          echo "=== Applying bulletproof gnulib patches ==="
-          
-          # 1. Fix freadahead.c with a completely robust patch
-          echo "Patching freadahead.c..."
-          cat > "$M4_DIR/lib/freadahead.c" << 'FREADAHEAD_EOF'
-          /* Retrieve information about a FILE stream.
-             Copyright (C) 2007-2016 Free Software Foundation, Inc.
-          
-             This program is free software: you can redistribute it and/or modify
-             it under the terms of the GNU General Public License as published by
-             the Free Software Foundation; either version 3 of the License, or
-             (at your option) any later version.
-          
-             This program is distributed in the hope that it will be useful,
-             but WITHOUT ANY WARRANTY; without even the implied warranty of
-             MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-             GNU General Public License for more details.
-          
-             You should have received a copy of the GNU General Public License
-             along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
-          
-          #include <config.h>
-          
-          /* Specification.  */
-          #include "freadahead.h"
-          
-          #include <stdlib.h>
-          
-          size_t
-          freadahead (FILE *fp)
-          {
-          #if defined _IO_ftrylockfile || __GLIBC__ == 2 && __GLIBC_MINOR__ >= 1
-            /* GNU libc, BeOS, Haiku, Linux libc5 */
-            if (fp->_IO_write_ptr > fp->_IO_write_base)
-              return 0;
-            return (fp->_IO_read_end - fp->_IO_read_ptr);
-          #elif defined __sferror || defined __DragonFly__ || defined __ANDROID__
-            /* FreeBSD, NetBSD, OpenBSD, DragonFly, Mac OS X, Cygwin, Minix 3, Android */
-            if ((fp->_flags & __SWR) != 0 || fp->_r < 0)
-              return 0;
-            return fp->_r;
-          #elif defined __EMX__               /* emx+gcc */
-            if ((fp->_flags & _IOWRT) != 0)
-              return 0;
-            /* Note: fp->_ungetc_count > 0 implies fp->_rcount <= 0,
-                     fp->_ungetc_count = 0 implies fp->_rcount >= 0.  */
-            if (fp->_rcount <= 0)
-              return 0;
-            return fp->_rcount;
-          #elif defined _IOERR                /* AIX, HP-UX, IRIX, OSF/1, Solaris, OpenServer, mingw, MSVC, NonStop Kernel */
-            if ((fp->_flag & _IOWRT) != 0)
-              return 0;
-            return fp->_cnt;
-          #else
-            /* Fallback for unknown systems - return 0 (safe but suboptimal) */
-            return 0;
-          #endif
-          }
-          FREADAHEAD_EOF
-          
-          echo "✓ Applied complete freadahead.c replacement"
-          
-          # 2. Fix fseeko.c with a complete replacement
-          echo "Patching fseeko.c..."
-          cat > "$M4_DIR/lib/fseeko.c" << 'FSEEKO_EOF'
-          /* An fseeko() function that, together with fflush(), is POSIX compliant.
-             Copyright (C) 2007-2016 Free Software Foundation, Inc.
-          
-             This program is free software; you can redistribute it and/or modify
-             it under the terms of the GNU General Public License as published by
-             the Free Software Foundation; either version 2, or (at your option)
-             any later version.
-          
-             This program is distributed in the hope that it will be useful,
-             but WITHOUT ANY WARRANTY; without even the implied warranty of
-             MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-             GNU General Public License for more details.
-          
-             You should have received a copy of the GNU General Public License along
-             with this program; if not, see <http://www.gnu.org/licenses/>.  */
-          
-          #include <config.h>
-          
-          /* Specification.  */
-          #include <stdio.h>
-          
-          int
-          fseeko (FILE *fp, off_t offset, int whence)
-          #undef fseeko
-          {
-          #if defined _IO_ftrylockfile || __GLIBC__ == 2 && __GLIBC_MINOR__ >= 1
-            /* GNU libc, BeOS, Haiku, Linux libc5 */
-            return fseeko (fp, offset, whence);
-          #else
-            /* Use the replacement fseeko function.  */
-            return rpl_fseeko (fp, offset, whence);
-          #endif
-          }
-          FSEEKO_EOF
-          
-          echo "✓ Applied complete fseeko.c replacement"
-          
-          # 3. Fix c-stack.c for SIGSTKSZ
-          echo "Patching c-stack.c..."
-          if [ -f "$M4_DIR/lib/c-stack.c" ]; then
-            # Simple and effective fix - just remove the problematic preprocessor condition
-            sed -i 's/#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384/#elif HAVE_LIBSIGSEGV/' "$M4_DIR/lib/c-stack.c"
-            echo "✓ Applied c-stack.c SIGSTKSZ fix"
-          fi
-          
-          # 4. Add comprehensive compatibility flags to config.h
-          echo "Adding compatibility definitions..."
-          cat >> "$M4_DIR/lib/config.h" << 'CONFIG_EOF'
-          
-          /* Additional compatibility definitions for modern glibc */
-          #ifndef _GNU_SOURCE
-          #define _GNU_SOURCE 1
-          #endif
-          
-          #ifndef _FORTIFY_SOURCE
-          #define _FORTIFY_SOURCE 0
-          #endif
-          
-          /* Ensure proper glibc detection */
-          #if defined __GLIBC__ && !defined _IO_ftrylockfile
-          #define _IO_ftrylockfile 1
-          #endif
-          CONFIG_EOF
-          
-          echo "✓ Added compatibility definitions"
-          
-          # 5. Verify all patches were applied
-          echo "=== Verifying patches ==="
-          
-          # Check if freadahead.c has our code
-          if grep -q "_IO_ftrylockfile.*__GLIBC__" "$M4_DIR/lib/freadahead.c"; then
-            echo "✓ freadahead.c patch verified"
+          # Verify ccache is disabled
+          if ! grep -q "BR2_CCACHE=y" .config && ! grep -q "BR2_PACKAGE_HOST_CCACHE=y" .config; then
+            echo "✓ Successfully disabled ccache"
           else
-            echo "❌ freadahead.c patch failed"
-            exit 1
+            echo "⚠ Warning: ccache may still be enabled"
           fi
           
-          # Check if the error directive is gone
-          if ! grep -q "#error.*port gnulib freadahead" "$M4_DIR/lib/freadahead.c"; then
-            echo "✓ freadahead.c error directive removed"
-          else
-            echo "❌ freadahead.c still contains error directive"
-            exit 1
-          fi
-          
-          echo "✓ All gnulib patches applied successfully"
-          echo "GNULIB_FIX_APPLIED=patches" >> $GITHUB_ENV
+          echo "✓ Buildroot configured without problematic packages"
 
       - name: Build tools with enhanced compatibility
         run: |
           cd buildroot-2017.11.1
           
-          # Enhanced compatibility flags for modern systems
-          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE -Wno-implicit-function-declaration -Wno-format-security"
-          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE -Wno-implicit-function-declaration"
-          export CFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE -O1"  # Reduce optimization level
-          export CXXFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE -O1"
+          # Set comprehensive host compiler flags
+          export HOSTCFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
+          export HOSTCXXFLAGS="-fcommon -Wno-error -DSIGSTKSZ=16384 -DSIGSTKSZ_CONST=16384 -D_GNU_SOURCE"
+          export CFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
+          export CXXFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
           export CPPFLAGS="-DSIGSTKSZ=16384 -D_GNU_SOURCE"
           
           # Additional compatibility environment
           export FORCE_UNSAFE_CONFIGURE=1
           export LC_ALL=C
-          export MAKEFLAGS="--no-builtin-rules --no-builtin-variables"
-          export SHELL=/bin/bash
+          export ac_cv_func_malloc_0_nonnull=yes
+          export ac_cv_func_realloc_0_nonnull=yes
           
-          # Force older autotools behavior
-          export AUTOM4TE_PERLLIBDIR=/usr/share/autotools-dev
-          export M4=/usr/bin/m4
+          echo "=== Build environment ==="
+          echo "HOSTCFLAGS: $HOSTCFLAGS"
+          echo "CFLAGS: $CFLAGS"
           
-          # Memory and process limits
-          ulimit -v 4194304  # 4GB virtual memory limit
-          ulimit -s 8192     # 8MB stack limit
-          
-          # Use system tools where possible to avoid building problematic packages
-          mkdir -p output/host/bin
-          ln -sf /usr/bin/m4 output/host/bin/m4 2>/dev/null || true
-          ln -sf /usr/bin/bison output/host/bin/bison 2>/dev/null || true
-          ln -sf /usr/bin/flex output/host/bin/flex 2>/dev/null || true
-          
-          # Single-threaded build to avoid race conditions
-          echo "Building with single thread for stability..."
-          make wireguard-tools-rebuild -j1 V=1 2>&1 | tee build.log
-          
-          echo "=== Building other tools ==="
-          
-          # Build bash with error recovery
-          make bash-rebuild -j$PARALLEL_JOBS V=1 || make bash-rebuild -j1 V=1 || echo "⚠ Bash build failed, continuing"
-          
-          # Build openresolv with error recovery  
-          make openresolv-rebuild -j$PARALLEL_JOBS V=1 || make openresolv-rebuild -j1 V=1 || echo "⚠ OpenResolv build failed, continuing"
-          
-          # Build libqrencode with error recovery
-          make libqrencode-rebuild -j$PARALLEL_JOBS V=1 || make libqrencode-rebuild -j1 V=1 || echo "⚠ Libqrencode build failed, continuing"
-          
-      - name: Enhanced error reporting for gnulib issues
-        if: failure()
-        run: |
-          echo "=== COMPREHENSIVE BUILD FAILURE ANALYSIS ==="
-          
-          cd buildroot-2017.11.1
-          
-          # Check system info
-          echo "=== System Information ==="
-          uname -a
-          gcc --version
-          glibc --version 2>/dev/null || ldd --version | head -1
-          
-          # Find and analyze M4 build
-          M4_BUILD_DIR=$(find output/build -name "host-m4-*" -type d | head -1)
-          if [ -n "$M4_BUILD_DIR" ]; then
-            echo "=== M4 Analysis ==="
-            echo "M4 build directory: $M4_BUILD_DIR"
-            
-            # Show patch status
-            for file in freadahead.c fseeko.c c-stack.c; do
-              if [ -f "$M4_BUILD_DIR/lib/$file.orig" ]; then
-                echo "=== $file patch status ==="
-                echo "Original file size: $(stat -c%s "$M4_BUILD_DIR/lib/$file.orig" 2>/dev/null || echo 'unknown')"
-                echo "Patched file size: $(stat -c%s "$M4_BUILD_DIR/lib/$file" 2>/dev/null || echo 'unknown')"
-                echo "Key lines around glibc compatibility:"
-                grep -n -A5 -B5 "__GLIBC__" "$M4_BUILD_DIR/lib/$file" 2>/dev/null || echo "No __GLIBC__ references found"
-              else
-                echo "⚠ $file.orig backup not found - patch may not have been applied"
-              fi
-            done
-            
-            # Check for build logs
-            echo "=== M4 build logs ==="
-            find "$M4_BUILD_DIR" -name "*.log" -exec echo "=== {} ===" \; -exec tail -20 {} \; 2>/dev/null || echo "No M4 logs found"
-            
-            # Show actual errors
-            echo "=== Recent error patterns ==="
-            find "$M4_BUILD_DIR" -name "*.log" -exec grep -H "error:" {} \; 2>/dev/null | tail -10 || echo "No specific errors found in M4 logs"
-            
-          else
-            echo "❌ M4 build directory not found"
-          fi
-          
-          # General build failure analysis
-          echo "=== General build error analysis ==="
-          find output/build -name "*.log" -exec echo "=== {} ===" \; -exec tail -10 {} \; 2>/dev/null | head -100
-          
-          echo "=== Available tools after partial build ==="
-          find output/target -name "wg" -o -name "bash" -o -name "qrencode" -o -name "resolvconf" 2>/dev/null || echo "No tools found"
-          
-      - name: Collect tools
-        run: |
-          mkdir -p tools
-          cd buildroot-2017.11.1
-          
-          echo "=== Collecting built tools ==="
-          
-          # Copy tools with error checking
-          if [ -f "output/target/usr/bin/wg" ]; then
-            cp output/target/usr/bin/wg ../tools/
-            echo "✓ wg tool collected"
-          else
-            echo "❌ wg tool not found"
-            ls -la output/target/usr/bin/ | grep wg || echo "No wg files found"
-            exit 1
-          fi
-          
-          if [ -f "output/target/bin/bash" ]; then
-            cp output/target/bin/bash ../tools/
-            echo "✓ bash collected"
-          else
-            echo "⚠ bash not found, continuing"
-          fi
-          
-          if [ -f "output/target/usr/bin/qrencode" ]; then
-            cp output/target/usr/bin/qrencode ../tools/
-            echo "✓ qrencode collected"
-          else
-            echo "⚠ qrencode not found, continuing"
-          fi
-          
-          if [ -f "output/target/sbin/resolvconf" ]; then
-            cp output/target/sbin/resolvconf ../tools/
-            echo "✓ resolvconf collected"
-          else
-            echo "⚠ resolvconf not found, continuing"
-          fi
-          
-          if [ -f "output/target/etc/resolvconf.conf" ]; then
-            cp output/target/etc/resolvconf.conf ../tools/
-            echo "✓ resolvconf.conf collected"
-          else
-            echo "⚠ resolvconf.conf not found, continuing"
-          fi
-          
-          # Check for wg-quick in the build directory - try both locations
-          if [ -f "output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
-            cp output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
-            echo "✓ wg-quick collected"
-          elif [ -f "output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash" ]; then
-            cp output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ../tools/wg-quick
-            echo "✓ wg-quick collected (amneziawg path)"
-          else
-            echo "⚠ wg-quick not found, checking available directories..."
-            find output/build -name "linux.bash" -type f || echo "No wg-quick script found"
-          fi
-          
-          echo "=== Final tools inventory ==="
-          ls -la ../tools/
-          
-      - name: Store tools
-        uses: actions/upload-artifact@v4
-        with:
-          name: tools
-          path: tools
-
-  udm-package:
-    needs: [udm-build-tools, udm-build-modules]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Prepare
-        run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
-        
-      - name: Download all modules
-        run: |
-          mkdir -p temp-modules
-          for base in udm-1.9.0-10 udm-1.10.0-8 udm-1.10.0-12 udm-se-2.2.4 udr-2.2.12; do
-            echo "Downloading modules for $base"
-          done
-          
-      - name: Download udm-1.9.0-10 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-1.9.0-10
-          path: temp-modules/udm-1.9.0-10
-        continue-on-error: true
-        
-      - name: Download udm-1.10.0-8 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-1.10.0-8
-          path: temp-modules/udm-1.10.0-8
-        continue-on-error: true
-        
-      - name: Download udm-1.10.0-12 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-1.10.0-12
-          path: temp-modules/udm-1.10.0-12
-        continue-on-error: true
-        
-      - name: Download udm-se-2.2.4 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udm-se-2.2.4
-          path: temp-modules/udm-se-2.2.4
-        continue-on-error: true
-        
-      - name: Download udr-2.2.12 modules
-        uses: actions/download-artifact@v4
-        with:
-          name: modules-udr-2.2.12
-          path: temp-modules/udr-2.2.12
-        continue-on-error: true
-        
-      - name: Consolidate modules
-        run: |
-          find temp-modules -name "*.ko" -exec cp {} package/wireguard/modules/ \;
-          echo "Consolidated modules:"
-          ls -la package/wireguard/modules/
-          
-      - name: Restore tools
-        uses: actions/download-artifact@v4
-        with:
-          name: tools
-          path: package/wireguard/tools
-          
-      - name: Add setup
-        run: cp unifios/setup_wireguard.sh package/wireguard/
-        
-      - name: Fix permissions
-        run: |
-          if [ -f "package/wireguard/tools/resolvconf.conf" ]; then
-            mv package/wireguard/tools/resolvconf.conf package/wireguard/etc
-          fi
-          chmod +x package/wireguard/tools/* package/wireguard/setup_wireguard.sh 2>/dev/null || true
-          sudo chown -R root:root package/wireguard
-          
-      - name: Package
-        run: tar -C package -czf UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz ./
-        
-      - name: Store package
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-unifios
-          path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
+          # Calculate optimal parallel jobs
+          NPROC=$(nproc)
+          PARALLEL_JOBS=$((NPROC * 3 / 4))
