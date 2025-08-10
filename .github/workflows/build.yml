@@ -61,7 +61,15 @@ jobs:
           mv kernel_* kernel.tar.gz
           tar -xf kernel.tar.gz --strip-components 1
           # Fix dtc multiple definition issue with newer build tools
-          patch -p1 < dtc-multiple-definition.patch || true
+          if patch -p1 --dry-run < dtc-multiple-definition.patch >/dev/null 2>&1; then
+            patch -p1 < dtc-multiple-definition.patch
+            echo "Applied dtc-multiple-definition.patch successfully"
+          elif [ -f scripts/dtc/dtc-lexer.l ] && grep -q "YYLTYPE yylloc;" scripts/dtc/dtc-lexer.l; then
+            sed -i '/YYLTYPE yylloc;/d' scripts/dtc/dtc-lexer.l
+            echo "Applied dtc fix via sed as fallback"
+          else
+            echo "No dtc fix needed or already applied"
+          fi
           if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
