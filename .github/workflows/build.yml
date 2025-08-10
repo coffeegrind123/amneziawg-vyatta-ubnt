@@ -108,7 +108,7 @@ jobs:
           fi
           # Set environment variables to handle DTC build issues
           export HOSTLDFLAGS="-Wl,--allow-multiple-definition"
-          export HOSTCFLAGS_dtc-lexer.lex.o="-DYYLTYPE_IS_DECLARED"
+          export HOSTCFLAGS="-DYYLTYPE_IS_DECLARED"
           # Create a background process to fix DTC files as they are generated
           (
             while true; do
@@ -135,7 +135,7 @@ jobs:
           done
           # Re-export environment variables for second build
           export HOSTLDFLAGS="-Wl,--allow-multiple-definition"
-          export HOSTCFLAGS_dtc-lexer.lex.o="-DYYLTYPE_IS_DECLARED"
+          export HOSTCFLAGS="-DYYLTYPE_IS_DECLARED"
           make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
           rm /headers/source /headers/Makefile
           # This is from alpine linux who in turn got it from
