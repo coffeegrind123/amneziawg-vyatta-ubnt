@@ -288,6 +288,14 @@ jobs:
           cp unifios/patches/0001-m4-glibc-change-work-around.patch buildroot-2017.11.1/package/m4
           cp unifios/patches/0001-bison-glibc-change-work-around.patch buildroot-2017.11.1/package/bison
           cp unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch buildroot-2017.11.1/package/gcc/6.4.0
+      - name: Initialize buildroot
+        run: |
+          cd buildroot-2017.11.1
+          # Use a minimal config to initialize buildroot's build system
+          cp unifios/bases/udm-1.9.0-10/buildroot-config.txt .config
+          make oldconfig
+          # Clean up the specific config - each job will use its own
+          rm -f .config
       - name: Generate artifacts
         run: tar -cf buildroot.tar buildroot-2017.11.1
       - name: Store headers
