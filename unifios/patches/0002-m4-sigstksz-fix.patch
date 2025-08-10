@@ -1,5 +1,7 @@
---- a/lib/c-stack.c
-+++ b/lib/c-stack.c
+Index: m4-1.4.18/lib/c-stack.c
+===================================================================
+--- m4-1.4.18.orig/lib/c-stack.c
++++ m4-1.4.18/lib/c-stack.c
 @@ -52,7 +52,8 @@
  #if DEBUG
  # include <stdio.h>
