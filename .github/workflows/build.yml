@@ -290,11 +290,11 @@ jobs:
           cp unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch buildroot-2017.11.1/package/gcc/6.4.0
       - name: Initialize buildroot
         run: |
-          # Use a minimal config to initialize buildroot's build system
-          cp unifios/bases/udm-1.9.0-10/buildroot-config.txt buildroot-2017.11.1/.config
           cd buildroot-2017.11.1
-          make oldconfig
-          # Clean up the specific config - each job will use its own
+          # Initialize buildroot's build system properly
+          make defconfig
+          # Clean up the default config so individual jobs can use their own
+          make clean
           rm -f .config
       - name: Generate artifacts
         run: tar -cf buildroot.tar buildroot-2017.11.1
