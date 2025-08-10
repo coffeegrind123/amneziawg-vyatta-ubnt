@@ -1,5 +1,5 @@
 #!/bin/bash
-# Apply libfdt_env.h fix for older kernel builds
+# Apply comprehensive DTC and libfdt_env.h fix for older kernel builds
 
 # Find kernel source directory (look for scripts/dtc directory)
 KERNEL_DIR=""
@@ -21,6 +21,16 @@ if [ -z "$KERNEL_DIR" ]; then
 fi
 
 echo "Found kernel source in: $KERNEL_DIR"
+
+# First, fix the yylloc declaration issue
+find "$KERNEL_DIR" -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+    echo "Applying improved DTC fix to $file"
+    sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
+    # Also ensure YYLTYPE_IS_DECLARED is set  
+    if ! grep -q "YYLTYPE_IS_DECLARED" "$file"; then
+        sed -i '/extern YYLTYPE yylloc;/i #ifndef YYLTYPE_IS_DECLARED\n#define YYLTYPE_IS_DECLARED 1\n#endif' "$file"
+    fi
+done
 
 # Create the libfdt_env.h file
 cat > "$KERNEL_DIR/scripts/dtc/libfdt_env.h" << 'EOF'
@@ -85,11 +95,10 @@ EOF
 
 echo "Created $KERNEL_DIR/scripts/dtc/libfdt_env.h"
 
-# Also apply the DTC multiple definition fix if dtc-lexer.l exists
-if [ -f "$KERNEL_DIR/scripts/dtc/dtc-lexer.l" ]; then
-    echo "Applying DTC multiple definition fix to dtc-lexer.l"
-    sed -i '/^YYLTYPE yylloc;/d' "$KERNEL_DIR/scripts/dtc/dtc-lexer.l"
-    echo "Applied DTC multiple definition fix"
-fi
+# Apply fix to any generated files that might already exist
+find "$KERNEL_DIR" -name "dtc-lexer.lex.c" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+    echo "Applying DTC fix to generated file $file"
+    sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
+done
 
-echo "libfdt_env.h fix applied successfully!"
+echo "Comprehensive DTC and libfdt_env.h fix applied successfully!"

@@ -62,26 +62,21 @@ jobs:
           tar -xf kernel.tar.gz --strip-components 1
           # Fix dtc multiple definition issue with newer build tools
           echo "Applying comprehensive DTC fix..."
-          # First try to apply the original patch
-          if patch -p1 --dry-run < dtc-multiple-definition.patch >/dev/null 2>&1; then
-            patch -p1 < dtc-multiple-definition.patch
-            echo "Applied dtc-multiple-definition.patch successfully"
-          # Try the improved patch
-          elif patch -p1 --dry-run < dtc-multiple-definition-improved.patch >/dev/null 2>&1; then
-            patch -p1 < dtc-multiple-definition-improved.patch
-            echo "Applied dtc-multiple-definition-improved.patch successfully"
-          else
-            # Apply sed fix to all possible locations
-            find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-              echo "Applying DTC fix to $file"
-              sed -i '/YYLTYPE yylloc;/d' "$file"
-            done
-            echo "Applied dtc fix via sed to all dtc-lexer.l files"
-          fi
+          # Apply comprehensive DTC fix that handles both multiple definitions and missing declarations
+          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+            echo "Applying improved DTC fix to $file"
+            # Replace the problematic declaration with extern declaration
+            sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
+            # Also ensure YYLTYPE_IS_DECLARED is set
+            if ! grep -q "YYLTYPE_IS_DECLARED" "$file"; then
+              sed -i '/extern YYLTYPE yylloc;/i #ifndef YYLTYPE_IS_DECLARED\n#define YYLTYPE_IS_DECLARED 1\n#endif' "$file"
+            fi
+          done
+          echo "Applied improved dtc fix to all dtc-lexer.l files"
           # Also apply to any generated files that might exist
           find . -name "dtc-lexer.lex.c" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
             echo "Applying DTC fix to generated file $file"
-            sed -i '/YYLTYPE yylloc;/d' "$file"
+            sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
           done
           # Force regeneration to use our fixed lexer file
           find . -name "dtc-lexer.lex.c" -delete
@@ -91,7 +86,7 @@ jobs:
           # Ensure DTC fix is applied before make commands
           find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
             echo "Pre-make DTC fix to $file"
-            sed -i '/YYLTYPE yylloc;/d' "$file"
+            sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
           done
           # Modify DTC build to avoid multiple definition issues and fix include paths
           if [ -f scripts/dtc/Makefile ]; then
@@ -137,7 +132,7 @@ jobs:
               find . -name "dtc-lexer.lex.c" -newer scripts/dtc/dtc-lexer.l 2>/dev/null | while read -r file; do
                 if grep -q "YYLTYPE yylloc;" "$file" 2>/dev/null; then
                   echo "Fixing generated DTC file $file during build"
-                  sed -i '/YYLTYPE yylloc;/d' "$file"
+                  sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
                 fi
               done
             done
@@ -152,7 +147,7 @@ jobs:
           echo "Re-applying comprehensive DTC fix after mrproper..."
           find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
             echo "Re-applying DTC fix to $file"
-            sed -i '/YYLTYPE yylloc;/d' "$file"
+            sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
           done
           # Re-export environment variables for second build
           export HOSTLDFLAGS="-Wl,--allow-multiple-definition"
