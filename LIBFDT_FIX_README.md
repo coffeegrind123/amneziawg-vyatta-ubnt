@@ -1,9 +1,10 @@
-# libfdt_env.h Fix for AmnesiaWG VyattaOS Build
+# Comprehensive DTC Fix for AmnesiaWG VyattaOS Build
 
-## Problem
+## Problems
 
-The AmnesiaWG VyattaOS build for MIPS64 Octeon platforms was failing with the following error:
+The AmnesiaWG VyattaOS build for MIPS64 Octeon platforms was failing with multiple DTC-related errors:
 
+### 1. Missing libfdt_env.h Header
 ```
 In file included from dtc-lexer.l:38:
 scripts/dtc/dtc.h:35:10: fatal error: libfdt_env.h: No such file or directory
@@ -12,7 +13,13 @@ scripts/dtc/dtc.h:35:10: fatal error: libfdt_env.h: No such file or directory
 compilation terminated.
 ```
 
-This occurs because the Device Tree Compiler (DTC) in older kernel sources requires the `libfdt_env.h` header file, which defines endianness conversion functions and data types for Flattened Device Tree operations.
+### 2. yylloc Undeclared Variable Error  
+```
+dtc-lexer.l:46:18: error: 'yylloc' undeclared (first use in this function); did you mean 'yyalloc'?
+dtc-lexer.lex.c:845:2: note: in expansion of macro 'YY_USER_ACTION'
+```
+
+These occur because the Device Tree Compiler (DTC) in older kernel sources has compatibility issues with newer build tools and missing required header files.
 
 ## Solution
 
@@ -20,10 +27,12 @@ The fix has been implemented in multiple layers:
 
 ### 1. GitHub Actions Workflow (`.github/workflows/build.yml`)
 
-The main build workflow now includes logic to:
+The main build workflow now includes comprehensive logic to:
 - Check for existing `libfdt_env.h` files in the kernel source
-- Create the missing header file if not found
-- Use either the dedicated script or a fallback inline creation
+- Create the missing header file if not found  
+- Fix `yylloc` declarations by changing them from local to extern declarations
+- Apply fixes to both source (.l) files and generated (.lex.c) files
+- Monitor and fix files during the build process with a background task
 
 ### 2. Docker Environment (`ci/DOCKERFILE-octeon`)
 
@@ -34,7 +43,8 @@ Added the following packages to the build environment:
 ### 3. Standalone Fix Scripts
 
 - **`create_libfdt_env.sh`** - Simple script to create the header file
-- **`apply_libfdt_fix.sh`** - Comprehensive fix script that also handles DTC multiple definition issues
+- **`apply_libfdt_fix.sh`** - Comprehensive fix script that handles both `libfdt_env.h` creation and `yylloc` declaration issues
+- **`dtc-yylloc-fix.patch`** - Patch file for the yylloc extern declaration fix
 
 ### 4. Header File Content
 
@@ -62,13 +72,23 @@ The fix can be tested by running:
 
 ## Technical Details
 
+### libfdt_env.h Header
+
 The `libfdt_env.h` file provides the necessary environment definitions for the libfdt library used by the Device Tree Compiler. It handles:
 
 - **Endianness**: Proper byte order conversion between host and device tree formats
 - **Data Types**: Typed definitions for 16, 32, and 64-bit values in device trees  
 - **Compiler Support**: Attributes for static analysis tools like Sparse
 
-This fix ensures compatibility with older kernel sources that expect this header file to be present during the DTC build process.
+### yylloc Declaration Fix
+
+The `yylloc` variable issue occurs because:
+
+1. **Old approach**: `YYLTYPE yylloc;` creates a local definition that can cause multiple definition errors
+2. **New approach**: `extern YYLTYPE yylloc;` declares it as external, avoiding multiple definitions
+3. **YYLTYPE_IS_DECLARED**: Ensures the Bison parser knows the type is properly declared
+
+This fix ensures compatibility with both older kernel sources and newer build tools.
 
 ## Future Maintenance
 
