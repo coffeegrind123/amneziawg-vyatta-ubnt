@@ -75,6 +75,11 @@ jobs:
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
           cp Module.symvers .config /headers
           make mrproper
+          # Apply DTC fix again after mrproper cleans everything
+          if [ -f scripts/dtc/dtc-lexer.l ] && grep -q "YYLTYPE yylloc;" scripts/dtc/dtc-lexer.l; then
+            sed -i '/YYLTYPE yylloc;/d' scripts/dtc/dtc-lexer.l
+            echo "Re-applied DTC fix after mrproper"
+          fi
           make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
           rm /headers/source /headers/Makefile
           # This is from alpine linux who in turn got it from
