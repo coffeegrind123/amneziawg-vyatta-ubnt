@@ -21,13 +21,17 @@ RUN apt-get update && \
 	texinfo \
 	cpio \
 	wget \
-	jq && \
+	jq \
+	libfdt-dev \
+	device-tree-compiler && \
 	rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/opt/cross/bin:${PATH}"
 
 COPY ci/octeon-toolchain.sh /build_toolchain.sh
+COPY apply_libfdt_fix.sh /apply_libfdt_fix.sh
 
-RUN chmod +x /build_toolchain.sh && /build_toolchain.sh
+RUN chmod +x /build_toolchain.sh && /build_toolchain.sh && \
+    chmod +x /apply_libfdt_fix.sh
 
 ENV CROSSCOMPILE="mips64-octeon-linux-"
