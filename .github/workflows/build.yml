@@ -299,6 +299,11 @@ jobs:
           echo "" >> output/.br-external.mk
           # Now try to initialize properly
           make defconfig
+          # Apply DTC fix after kernel is downloaded during defconfig
+          find . -name "dtc-lexer.l" -path "*/scripts/dtc/*" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+            echo "Applying DTC fix to $file"
+            sed -i '/YYLTYPE yylloc;/d' "$file"
+          done
           # Clean up the default config so individual jobs can use their own
           make clean
           rm -f .config
