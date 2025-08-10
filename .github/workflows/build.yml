@@ -61,25 +61,50 @@ jobs:
           mv kernel_* kernel.tar.gz
           tar -xf kernel.tar.gz --strip-components 1
           # Fix dtc multiple definition issue with newer build tools
+          echo "Applying comprehensive DTC fix..."
+          # First try to apply the original patch
           if patch -p1 --dry-run < dtc-multiple-definition.patch >/dev/null 2>&1; then
             patch -p1 < dtc-multiple-definition.patch
             echo "Applied dtc-multiple-definition.patch successfully"
-          elif [ -f scripts/dtc/dtc-lexer.l ] && grep -q "YYLTYPE yylloc;" scripts/dtc/dtc-lexer.l; then
-            sed -i '/YYLTYPE yylloc;/d' scripts/dtc/dtc-lexer.l
-            echo "Applied dtc fix via sed as fallback"
+          # Try the improved patch
+          elif patch -p1 --dry-run < dtc-multiple-definition-improved.patch >/dev/null 2>&1; then
+            patch -p1 < dtc-multiple-definition-improved.patch
+            echo "Applied dtc-multiple-definition-improved.patch successfully"
           else
-            echo "No dtc fix needed or already applied"
+            # Apply sed fix to all possible locations
+            find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+              echo "Applying DTC fix to $file"
+              sed -i '/YYLTYPE yylloc;/d' "$file"
+            done
+            echo "Applied dtc fix via sed to all dtc-lexer.l files"
           fi
+          # Also apply to any generated files that might exist
+          find . -name "dtc-lexer.lex.c" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+            echo "Applying DTC fix to generated file $file"
+            sed -i '/YYLTYPE yylloc;/d' "$file"
+          done
           if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
+          # Ensure DTC fix is applied before make commands
+          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+            echo "Pre-make DTC fix to $file"
+            sed -i '/YYLTYPE yylloc;/d' "$file"
+          done
+          # Modify DTC build to avoid multiple definition issues
+          if [ -f scripts/dtc/Makefile ]; then
+            # Add linker flag to allow multiple definitions as a backup
+            sed -i '/hostprogs-y.*dtc/a\\nHOSTLDFLAGS_dtc := -Wl,--allow-multiple-definition' scripts/dtc/Makefile
+            echo "Added multiple definition linker flags to DTC Makefile"
+          fi
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
           cp Module.symvers .config /headers
           make mrproper
-          # Apply DTC fix again after mrproper cleans everything
-          if [ -f scripts/dtc/dtc-lexer.l ] && grep -q "YYLTYPE yylloc;" scripts/dtc/dtc-lexer.l; then
-            sed -i '/YYLTYPE yylloc;/d' scripts/dtc/dtc-lexer.l
-            echo "Re-applied DTC fix after mrproper"
-          fi
+          # Apply comprehensive DTC fix again after mrproper cleans everything
+          echo "Re-applying comprehensive DTC fix after mrproper..."
+          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+            echo "Re-applying DTC fix to $file"
+            sed -i '/YYLTYPE yylloc;/d' "$file"
+          done
           make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
           rm /headers/source /headers/Makefile
           # This is from alpine linux who in turn got it from
