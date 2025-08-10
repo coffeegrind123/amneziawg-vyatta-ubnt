@@ -28,7 +28,7 @@ find "$KERNEL_DIR" -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | w
     sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
     # Also ensure YYLTYPE_IS_DECLARED is set  
     if ! grep -q "YYLTYPE_IS_DECLARED" "$file"; then
-        sed -i '/extern YYLTYPE yylloc;/i #ifndef YYLTYPE_IS_DECLARED\n#define YYLTYPE_IS_DECLARED 1\n#endif' "$file"
+        sed -i '/%{/a #ifndef YYLTYPE_IS_DECLARED\n#define YYLTYPE_IS_DECLARED 1\n#endif' "$file"
     fi
 done
 
