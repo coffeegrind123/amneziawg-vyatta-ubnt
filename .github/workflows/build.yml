@@ -78,10 +78,7 @@ jobs:
             echo "Applying DTC fix to generated file $file"
             sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
           done
-          # Force regeneration to use our fixed lexer file
-          find . -name "dtc-lexer.lex.c" -delete
-          find . -name "dtc-parser.tab.c" -delete
-          find . -name "dtc-parser.tab.h" -delete
+          # Note: DTC file regeneration handled in later step
           if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
           # Ensure DTC fix is applied before make commands
           find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
@@ -92,15 +89,18 @@ jobs:
           if [ -f scripts/dtc/Makefile ]; then
             # Try multiple approaches to add linker flags
             if grep -q "hostprogs-y.*dtc" scripts/dtc/Makefile; then
-              # Method 1: HOSTLDFLAGS for DTC specifically
+              # Method 1: HOSTLDFLAGS for DTC specifically - force multiple definition acceptance
               echo "HOSTLDFLAGS_dtc := -Wl,--allow-multiple-definition -Wl,--warn-common" >> scripts/dtc/Makefile
-              # Method 2: Add specific compiler flags
-              echo "HOSTCFLAGS_dtc-lexer.lex.o := -DYYLTYPE_IS_DECLARED -DYYLTYPE_IS_TRIVIAL -I. -Iscripts/dtc/libfdt" >> scripts/dtc/Makefile
-              echo "HOSTCFLAGS_dtc-parser.tab.o := -DYYLTYPE_IS_DECLARED -DYYLTYPE_IS_TRIVIAL -I. -Iscripts/dtc/libfdt" >> scripts/dtc/Makefile
+              # Method 2: Override the linking command entirely for DTC
+              echo "" >> scripts/dtc/Makefile
+              echo "# Custom DTC linking rule to handle yylloc multiple definitions" >> scripts/dtc/Makefile
+              echo "\$(obj)/dtc: \$(dtc-objs)" >> scripts/dtc/Makefile
+              echo "	\$(HOSTCC) \$(dtc-objs) -Wl,--allow-multiple-definition -o \$@" >> scripts/dtc/Makefile
+              # Method 3: Add compiler flags
+              echo "HOSTCFLAGS_dtc-lexer.lex.o := -DYYLTYPE_IS_DECLARED -I. -Iscripts/dtc/libfdt" >> scripts/dtc/Makefile
+              echo "HOSTCFLAGS_dtc-parser.tab.o := -DYYLTYPE_IS_DECLARED -I. -Iscripts/dtc/libfdt" >> scripts/dtc/Makefile  
               echo "HOSTCFLAGS_dtc := -I. -Iscripts/dtc/libfdt -DYYLTYPE_IS_DECLARED" >> scripts/dtc/Makefile
-              # Method 3: Ensure the linking stage uses proper flags
-              echo "$(obj)/dtc: HOSTLDFLAGS += -Wl,--allow-multiple-definition" >> scripts/dtc/Makefile
-              echo "Added comprehensive DTC fixes to Makefile"
+              echo "Added comprehensive DTC fixes with custom linking rule to Makefile"
             fi
           fi
           # Find and fix libfdt include paths
@@ -126,21 +126,37 @@ jobs:
           # Set environment variables to handle DTC build issues  
           export HOSTLDFLAGS="-Wl,--allow-multiple-definition -Wl,--warn-common"
           export HOSTCFLAGS="-DYYLTYPE_IS_DECLARED -DYYLTYPE_IS_TRIVIAL -I. -Iscripts/dtc/libfdt"
-          # Create a background process to fix DTC files as they are generated
-          (
-            while true; do
-              sleep 1
-              find . -name "dtc-lexer.lex.c" -newer scripts/dtc/dtc-lexer.l 2>/dev/null | while read -r file; do
-                if grep -q "YYLTYPE yylloc;" "$file" 2>/dev/null; then
-                  echo "Fixing generated DTC file $file during build"
-                  sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
-                fi
-              done
+          # Force deletion and regeneration of DTC files to ensure our fixes are applied
+          find . -name "dtc-lexer.lex.c" -delete
+          find . -name "dtc-parser.tab.c" -delete  
+          find . -name "dtc-parser.tab.h" -delete
+          # Pre-compile the scripts target first to fix generated files
+          echo "Pre-compiling scripts to fix DTC files..."
+          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS scripts || {
+            # If it fails, apply comprehensive fixes to generated files and try again
+            echo "First scripts build failed, applying fixes to generated files..."
+            # Fix lexer file - make yylloc extern
+            find . -name "dtc-lexer.lex.c" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+              echo "Fixing generated lexer file $file"
+              sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
             done
-          ) &
-          BGPID=$!
+            # Fix parser file - ensure it's the only one defining yylloc
+            find . -name "dtc-parser.tab.c" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+              echo "Ensuring parser file $file defines yylloc"
+              # Make sure there's only one definition in the parser
+              if ! grep -q "extern YYLTYPE yylloc;" "$file"; then
+                # If it doesn't have extern, leave it as is (it should define it)
+                echo "Parser file $file will define yylloc"
+              else
+                # If it has extern, change it to definition
+                sed -i 's/extern YYLTYPE yylloc;/YYLTYPE yylloc;/' "$file"
+                echo "Changed parser file $file to define yylloc"
+              fi
+            done
+            # Try scripts build again
+            make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS scripts
+          }
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
-          kill $BGPID 2>/dev/null || true
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
           cp Module.symvers .config /headers
           make mrproper
