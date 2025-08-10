@@ -1,0 +1,20 @@
+--- a/scripts/dtc/dtc-lexer.l
++++ b/scripts/dtc/dtc-lexer.l
+@@ -35,11 +35,15 @@
+ %option noinput nounput noyy_top_state
+ %option extra-type="struct srcpos *"
+ 
++%top{
++#ifndef YYLTYPE_IS_DECLARED
++#define YYLTYPE_IS_DECLARED 1
++#endif
++}
++
+ %{
+ #include <stdio.h>
+ #include "dtc.h"
+ #include "srcpos.h"
+ #include "dtc-parser.tab.h"
+ 
+-YYLTYPE yylloc;
+ extern bool treesource_error;
