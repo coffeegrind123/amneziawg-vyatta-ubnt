@@ -80,15 +80,19 @@ The `libfdt_env.h` file provides the necessary environment definitions for the l
 - **Data Types**: Typed definitions for 16, 32, and 64-bit values in device trees  
 - **Compiler Support**: Attributes for static analysis tools like Sparse
 
-### yylloc Declaration Fix
+### yylloc Multiple Definition Fix
 
-The `yylloc` variable issue occurs because:
+The `yylloc` variable issue occurs because both the Bison parser and Flex lexer generate definitions of the same symbol:
 
-1. **Old approach**: `YYLTYPE yylloc;` creates a local definition that can cause multiple definition errors
-2. **New approach**: `extern YYLTYPE yylloc;` declares it as external, avoiding multiple definitions
-3. **YYLTYPE_IS_DECLARED**: Ensures the Bison parser knows the type is properly declared
+1. **Problem**: Both `dtc-parser.tab.o` and `dtc-lexer.lex.o` define `yylloc` in different sections (.data and .bss)
+2. **Root Cause**: Flex and Bison automatically generate this variable, and newer build tools detect the conflict
+3. **Solution Strategy**: Multiple approaches implemented:
+   - **Extern declarations**: Change lexer to use `extern YYLTYPE yylloc;`
+   - **Custom linking rule**: Override DTC Makefile with `--allow-multiple-definition` flag
+   - **Compiler flags**: Add `DYYLTYPE_IS_DECLARED` to coordinate tools
+   - **Environment variables**: Set global `HOSTLDFLAGS` as fallback
 
-This fix ensures compatibility with both older kernel sources and newer build tools.
+This comprehensive fix ensures compatibility across different kernel versions and build tool combinations.
 
 ## Future Maintenance
 
