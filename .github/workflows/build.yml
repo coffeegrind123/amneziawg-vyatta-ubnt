@@ -83,6 +83,10 @@ jobs:
             echo "Applying DTC fix to generated file $file"
             sed -i '/YYLTYPE yylloc;/d' "$file"
           done
+          # Force regeneration to use our fixed lexer file
+          find . -name "dtc-lexer.lex.c" -delete
+          find . -name "dtc-parser.tab.c" -delete
+          find . -name "dtc-parser.tab.h" -delete
           if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
           # Ensure DTC fix is applied before make commands
           find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
@@ -91,11 +95,35 @@ jobs:
           done
           # Modify DTC build to avoid multiple definition issues
           if [ -f scripts/dtc/Makefile ]; then
-            # Add linker flag to allow multiple definitions as a backup
-            sed -i '/hostprogs-y.*dtc/a\\nHOSTLDFLAGS_dtc := -Wl,--allow-multiple-definition' scripts/dtc/Makefile
-            echo "Added multiple definition linker flags to DTC Makefile"
+            # Try multiple approaches to add linker flags
+            if grep -q "hostprogs-y.*dtc" scripts/dtc/Makefile; then
+              # Method 1: HOSTLDFLAGS
+              echo "HOSTLDFLAGS_dtc := -Wl,--allow-multiple-definition" >> scripts/dtc/Makefile
+              # Method 2: Direct LDFLAGS modification
+              sed -i 's/$(HOSTCC) $(dtc-objs) -o $@/$(HOSTCC) $(dtc-objs) -Wl,--allow-multiple-definition -o $@/g' scripts/dtc/Makefile
+              # Method 3: Add HOSTCFLAGS to prevent the symbol generation
+              echo "HOSTCFLAGS_dtc-lexer.lex.o := -DYYLTYPE_IS_DECLARED" >> scripts/dtc/Makefile
+              echo "Added multiple DTC fixes to Makefile"
+            fi
           fi
+          # Set environment variables to handle DTC build issues
+          export HOSTLDFLAGS="-Wl,--allow-multiple-definition"
+          export HOSTCFLAGS_dtc-lexer.lex.o="-DYYLTYPE_IS_DECLARED"
+          # Create a background process to fix DTC files as they are generated
+          (
+            while true; do
+              sleep 1
+              find . -name "dtc-lexer.lex.c" -newer scripts/dtc/dtc-lexer.l 2>/dev/null | while read -r file; do
+                if grep -q "YYLTYPE yylloc;" "$file" 2>/dev/null; then
+                  echo "Fixing generated DTC file $file during build"
+                  sed -i '/YYLTYPE yylloc;/d' "$file"
+                fi
+              done
+            done
+          ) &
+          BGPID=$!
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
+          kill $BGPID 2>/dev/null || true
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
           cp Module.symvers .config /headers
           make mrproper
@@ -105,6 +133,9 @@ jobs:
             echo "Re-applying DTC fix to $file"
             sed -i '/YYLTYPE yylloc;/d' "$file"
           done
+          # Re-export environment variables for second build
+          export HOSTLDFLAGS="-Wl,--allow-multiple-definition"
+          export HOSTCFLAGS_dtc-lexer.lex.o="-DYYLTYPE_IS_DECLARED"
           make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
           rm /headers/source /headers/Makefile
           # This is from alpine linux who in turn got it from
