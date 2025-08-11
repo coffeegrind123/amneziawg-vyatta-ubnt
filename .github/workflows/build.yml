@@ -409,15 +409,15 @@ jobs:
           cd buildroot-2017.11.1
           # Apply DTC multiple definition fix for UDM buildroot 
           # Set environment variable to use safer linker flags
-          export LDFLAGS="-Wl,--allow-multiple-definition"
-          export HOST_LDFLAGS="-Wl,--allow-multiple-definition" 
+          export LDFLAGS="--allow-multiple-definition"
+          export HOST_LDFLAGS="--allow-multiple-definition" 
           make oldconfig
           (IFS=','
           for ver in $versions; do
             echo "Building version $ver"
             make wireguard-linux-compat-dirclean
             sed -i -e '/CONFIG_LOCALVERSION=/s/.*/CONFIG_LOCALVERSION="'$ver'"/' kernel-config
-            LDFLAGS="-Wl,--allow-multiple-definition" HOST_LDFLAGS="-Wl,--allow-multiple-definition" make wireguard-linux-compat-rebuild -j$(nproc)
+            LDFLAGS="--allow-multiple-definition" HOST_LDFLAGS="--allow-multiple-definition" make wireguard-linux-compat-rebuild -j$(nproc)
             cp output/build/wireguard-linux-compat-$MODULE_VERSION/src/wireguard.ko ../modules/wireguard-${prefix}${ver}.ko
             cp output/build/linux-custom/net/ipv4/netfilter/iptable_raw.ko ../modules/iptable_raw-${prefix}${ver}.ko
             cp output/build/linux-custom/net/ipv6/netfilter/ip6table_raw.ko ../modules/ip6table_raw-${prefix}${ver}.ko
