@@ -1,5 +1,3 @@
-diff --git a/src/netlink.c b/src/netlink.c
-index 0000000..1111111 100644
 --- a/src/netlink.c
 +++ b/src/netlink.c
 @@ -983,7 +983,11 @@ static int wg_peer_event(struct wg_peer *peer)
