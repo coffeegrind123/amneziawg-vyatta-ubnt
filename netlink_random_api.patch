@@ -1,0 +1,16 @@
+--- a/src/netlink.c
++++ b/src/netlink.c
+@@ -248,7 +248,12 @@ static int generate_ipv6_address_with_prefix(struct in6_addr *addr,
+ 		if (prefix_bits != 0) {
+ 			mask = (u8)(0xFF << (8 - prefix_bits));
+ 			addr[prefix_bytes] &= mask;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
+ 			addr[prefix_bytes] |= get_random_u8() & ~mask;
++#else
++			u8 random_byte;
++			get_random_bytes(&random_byte, 1);
++			addr[prefix_bytes] |= random_byte & ~mask;
++#endif
+ 		}
+ 	}
+ 
