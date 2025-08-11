@@ -457,7 +457,7 @@ jobs:
       - name: Collect tools
         run: |
           mkdir -p tools
-          cp buildroot-2017.11.1/output/target/usr/bin/wg tools/
+          cp buildroot-2017.11.1/output/target/usr/bin/awg tools/wg
           cp buildroot-2017.11.1/output/target/bin/bash tools/
           cp buildroot-2017.11.1/output/target/usr/bin/qrencode tools/
           cp buildroot-2017.11.1/output/target/sbin/resolvconf tools/
