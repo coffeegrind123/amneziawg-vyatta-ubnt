@@ -60,24 +60,48 @@ jobs:
           tar -xf src.tar.bz2 --wildcards 'source/kernel_*' --strip-components 1
           mv kernel_* kernel.tar.gz
           tar -xf kernel.tar.gz --strip-components 1
-          # Apply DTC yylloc fix - change declaration to extern to avoid multiple definition
-          echo "Applying DTC yylloc fix..."
-          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-            echo "Fixing DTC in $file"
-            sed -i 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/' "$file"
+          # Apply comprehensive DTC yylloc fix for multiple definition errors
+          echo "Applying comprehensive DTC yylloc fix..."
+          # Fix source files
+          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc" {} \; | while read -r file; do
+            echo "Fixing source DTC file: $file"
+            sed -i 's/^[[:space:]]*YYLTYPE[[:space:]]\+yylloc[[:space:]]*;[[:space:]]*$/extern YYLTYPE yylloc;/' "$file"
+          done
+          # Also fix any shipped/generated files that might exist
+          find . -name "dtc-lexer.lex.c*" -exec grep -l "YYLTYPE yylloc" {} \; | while read -r file; do
+            echo "Fixing generated DTC file: $file"
+            sed -i 's/^[[:space:]]*YYLTYPE[[:space:]]\+yylloc[[:space:]]*;[[:space:]]*$/extern YYLTYPE yylloc;/' "$file"
           done
           if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
-          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
+          # Try first make and catch DTC failures
+          if ! make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare; then
+            echo "First make failed, fixing generated DTC files..."
+            find . -name "dtc-lexer.lex.c" -exec grep -l "YYLTYPE yylloc" {} \; | while read -r file; do
+              echo "Fixing newly generated DTC file: $file"
+              sed -i 's/^[[:space:]]*YYLTYPE[[:space:]]\+yylloc[[:space:]]*;[[:space:]]*$/extern YYLTYPE yylloc;/' "$file"
+            done
+            # Retry make
+            make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
+          fi
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
           cp Module.symvers .config /headers
           make mrproper
           # Re-apply DTC yylloc fix after mrproper cleans everything
-          echo "Re-applying DTC yylloc fix after mrproper..."
-          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-            echo "Re-fixing DTC in $file"
-            sed -i 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/' "$file"
+          echo "Re-applying comprehensive DTC yylloc fix after mrproper..."
+          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc" {} \; | while read -r file; do
+            echo "Re-fixing source DTC file: $file"
+            sed -i 's/^[[:space:]]*YYLTYPE[[:space:]]\+yylloc[[:space:]]*;[[:space:]]*$/extern YYLTYPE yylloc;/' "$file"
           done
-          make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
+          # Try second make with catch for DTC failures
+          if ! make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts; then
+            echo "Second make failed, fixing generated DTC files..."
+            find . -name "dtc-lexer.lex.c" -exec grep -l "YYLTYPE yylloc" {} \; | while read -r file; do
+              echo "Re-fixing generated DTC file: $file"
+              sed -i 's/^[[:space:]]*YYLTYPE[[:space:]]\+yylloc[[:space:]]*;[[:space:]]*$/extern YYLTYPE yylloc;/' "$file"
+            done
+            # Retry make
+            make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
+          fi
           rm /headers/source /headers/Makefile
           # This is from alpine linux who in turn got it from
           # http://kernel.ubuntu.com/git/ubuntu/ubuntu-zesty.git/tree/debian/rules.d/3-binary-indep.mk
@@ -302,9 +326,14 @@ jobs:
           # Now try to initialize properly
           make defconfig
           # Apply DTC fix for buildroot after kernel is downloaded during defconfig
-          find output/build/linux-*/scripts/dtc/ -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; 2>/dev/null | while read -r file; do
-            echo "Fixing buildroot DTC in $file"
-            sed -i 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/' "$file"
+          find output/build/linux-*/scripts/dtc/ -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc" {} \; 2>/dev/null | while read -r file; do
+            echo "Fixing buildroot DTC source file: $file"
+            sed -i 's/^[[:space:]]*YYLTYPE[[:space:]]\+yylloc[[:space:]]*;[[:space:]]*$/extern YYLTYPE yylloc;/' "$file"
+          done
+          # Also fix any generated files in buildroot
+          find output/build/linux-*/scripts/dtc/ -name "dtc-lexer.lex.c*" -exec grep -l "YYLTYPE yylloc" {} \; 2>/dev/null | while read -r file; do
+            echo "Fixing buildroot DTC generated file: $file"
+            sed -i 's/^[[:space:]]*YYLTYPE[[:space:]]\+yylloc[[:space:]]*;[[:space:]]*$/extern YYLTYPE yylloc;/' "$file"
           done
           # Clean up the default config so individual jobs can use their own
           make clean
