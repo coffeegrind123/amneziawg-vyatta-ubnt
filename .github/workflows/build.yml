@@ -320,6 +320,12 @@ jobs:
         run: |
           curl -L -o amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
           tar -xf amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz
+          cd amneziawg-linux-kernel-module-$MODULE_VERSION
+          # Apply kernel API compatibility fixes for UDM builds
+          sed -i 's/ --dirty//g' src/Makefile
+          patch -p1 < ../siphash_no_fallthrough.patch
+          python3 ../fix_netlink_api.py
+          cd ..
           tar -cf amneziawg-linux-kernel-module-$MODULE_VERSION.tar amneziawg-linux-kernel-module-$MODULE_VERSION/
       - name: Download AmnesiaWG tools source
         run: |
