@@ -60,13 +60,12 @@ jobs:
           tar -xf src.tar.bz2 --wildcards 'source/kernel_*' --strip-components 1
           mv kernel_* kernel.tar.gz
           tar -xf kernel.tar.gz --strip-components 1
-          # Apply DTC yylloc fix using existing patch
+          # Apply DTC yylloc fix - change declaration to extern to avoid multiple definition
           echo "Applying DTC yylloc fix..."
-          if [ -f scripts/dtc/dtc-lexer.l ]; then
-            patch -p1 -f --dry-run < $GITHUB_WORKSPACE/dtc-yylloc-complete-fix.patch && \
-            patch -p1 -f < $GITHUB_WORKSPACE/dtc-yylloc-complete-fix.patch || \
-            echo "DTC patch already applied or failed"
-          fi
+          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+            echo "Fixing DTC in $file"
+            sed -i 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/' "$file"
+          done
           if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
@@ -74,11 +73,10 @@ jobs:
           make mrproper
           # Re-apply DTC yylloc fix after mrproper cleans everything
           echo "Re-applying DTC yylloc fix after mrproper..."
-          if [ -f scripts/dtc/dtc-lexer.l ]; then
-            patch -p1 -f --dry-run < $GITHUB_WORKSPACE/dtc-yylloc-complete-fix.patch && \
-            patch -p1 -f < $GITHUB_WORKSPACE/dtc-yylloc-complete-fix.patch || \
-            echo "DTC patch already applied or failed"
-          fi
+          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
+            echo "Re-fixing DTC in $file"
+            sed -i 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/' "$file"
+          done
           make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
           rm /headers/source /headers/Makefile
           # This is from alpine linux who in turn got it from
@@ -304,11 +302,10 @@ jobs:
           # Now try to initialize properly
           make defconfig
           # Apply DTC fix for buildroot after kernel is downloaded during defconfig
-          if [ -f output/build/linux-*/scripts/dtc/dtc-lexer.l ]; then
-            echo "Applying DTC fix to buildroot kernel"
-            patch -p1 -d output/build/linux-* -f < $GITHUB_WORKSPACE/unifios/bases/udm-1.9.0-10/linux-patches/linux-0001-dtc-lexer.patch || \
-            echo "Buildroot DTC patch failed or already applied"
-          fi
+          find output/build/linux-*/scripts/dtc/ -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; 2>/dev/null | while read -r file; do
+            echo "Fixing buildroot DTC in $file"
+            sed -i 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/' "$file"
+          done
           # Clean up the default config so individual jobs can use their own
           make clean
           rm -f .config
