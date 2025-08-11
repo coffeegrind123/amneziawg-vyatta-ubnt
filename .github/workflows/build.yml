@@ -407,6 +407,14 @@ jobs:
             cp -rf "unifios/bases/${{ matrix.base }}/patches" ./buildroot-2017.11.1/
           fi
           cd buildroot-2017.11.1
+          # Apply DTC multiple definition fix for UDM buildroot
+          find . -name "*.tab.o_shipped" -path "*/scripts/dtc/*" | head -1 | while read file; do
+            if [ -n "$file" ]; then
+              dir=$(dirname "$file")
+              echo "Fixing DTC multiple definition in $dir"
+              sed -i 's/^dtc_cpp_flags\s*=/# &/' "$dir/Makefile" 2>/dev/null || true
+            fi
+          done
           make oldconfig
           (IFS=','
           for ver in $versions; do
