@@ -19,7 +19,7 @@ def fix_netlink_api():
     
     # Fix 1: Replace get_random_u8() with compatibility code
     old_get_random = '\t\t\taddr[prefix_bytes] |= get_random_u8() & ~mask;'
-    new_get_random = '''#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
+    new_get_random = '''#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0)
 \t\t\taddr[prefix_bytes] |= get_random_u8() & ~mask;
 #else
 \t\t\tu8 random_byte;
