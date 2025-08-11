@@ -1,4 +1,4 @@
 # Hash will be validated by buildroot during download
 # Using skip validation for now as this is a newer version
-sha256  skip  openresolv-3.17.0.tar.gz
+sha256  skip  v3.17.0.tar.gz
 sha256  384740bf5e19e7628d20f4dcc22925062fdc6020e9a6f074e567d4d797be57a0  LICENSE
