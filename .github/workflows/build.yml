@@ -60,115 +60,25 @@ jobs:
           tar -xf src.tar.bz2 --wildcards 'source/kernel_*' --strip-components 1
           mv kernel_* kernel.tar.gz
           tar -xf kernel.tar.gz --strip-components 1
-          # Fix dtc multiple definition issue with newer build tools
-          echo "Applying comprehensive DTC fix..."
-          # Apply improved DTC fix that changes declaration to extern
-          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-            echo "Applying improved DTC fix to $file"
-            # Change to extern declaration to avoid multiple definitions
-            sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
-            # Add YYLTYPE_IS_DECLARED to ensure proper bison integration
-            if ! grep -q "YYLTYPE_IS_DECLARED" "$file"; then
-              sed -i '/%{/a #ifndef YYLTYPE_IS_DECLARED\n#define YYLTYPE_IS_DECLARED 1\n#endif' "$file"
-            fi
-          done
-          echo "Applied improved dtc fix to all dtc-lexer.l files"
-          # Also apply to any generated files that might exist
-          find . -name "dtc-lexer.lex.c" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-            echo "Applying DTC fix to generated file $file"
-            sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
-          done
-          # Note: DTC file regeneration handled in later step
+          # Apply DTC yylloc fix using existing patch
+          echo "Applying DTC yylloc fix..."
+          if [ -f scripts/dtc/dtc-lexer.l ]; then
+            patch -p1 -f --dry-run < $GITHUB_WORKSPACE/dtc-yylloc-complete-fix.patch && \
+            patch -p1 -f < $GITHUB_WORKSPACE/dtc-yylloc-complete-fix.patch || \
+            echo "DTC patch already applied or failed"
+          fi
           if [ ${{ matrix.version }} -ne 1 ]; then make ARCH=mips ubnt_er_${{ matrix.device }}_defconfig; fi;
-          # Ensure DTC fix is applied before make commands
-          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-            echo "Pre-make DTC fix to $file"
-            sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
-          done
-          # Modify DTC build to avoid multiple definition issues and fix include paths
-          if [ -f scripts/dtc/Makefile ]; then
-            # Try multiple approaches to add linker flags
-            if grep -q "hostprogs-y.*dtc" scripts/dtc/Makefile; then
-              # Method 1: HOSTLDFLAGS for DTC specifically - force multiple definition acceptance
-              echo "HOSTLDFLAGS_dtc := -Wl,--allow-multiple-definition -Wl,--warn-common" >> scripts/dtc/Makefile
-              # Method 2: Override the linking command entirely for DTC
-              echo "" >> scripts/dtc/Makefile
-              echo "# Custom DTC linking rule to handle yylloc multiple definitions" >> scripts/dtc/Makefile
-              echo "\$(obj)/dtc: \$(dtc-objs)" >> scripts/dtc/Makefile
-              echo "	\$(HOSTCC) \$(dtc-objs) -Wl,--allow-multiple-definition -o \$@" >> scripts/dtc/Makefile
-              # Method 3: Add compiler flags
-              echo "HOSTCFLAGS_dtc-lexer.lex.o := -DYYLTYPE_IS_DECLARED -I. -Iscripts/dtc/libfdt" >> scripts/dtc/Makefile
-              echo "HOSTCFLAGS_dtc-parser.tab.o := -DYYLTYPE_IS_DECLARED -I. -Iscripts/dtc/libfdt" >> scripts/dtc/Makefile  
-              echo "HOSTCFLAGS_dtc := -I. -Iscripts/dtc/libfdt -DYYLTYPE_IS_DECLARED" >> scripts/dtc/Makefile
-              echo "Added comprehensive DTC fixes with custom linking rule to Makefile"
-            fi
-          fi
-          # Find and fix libfdt include paths
-          echo "Checking for libfdt_env.h..."
-          if [ -f scripts/dtc/libfdt/libfdt_env.h ]; then
-            echo "Found libfdt_env.h in libfdt subdirectory"
-            if [ ! -f scripts/dtc/libfdt_env.h ]; then
-              echo "Creating symlink for libfdt_env.h"
-              ln -sf libfdt/libfdt_env.h scripts/dtc/libfdt_env.h
-            fi
-          elif find . -name "libfdt_env.h" -type f | head -1; then
-            LIBFDT_PATH=$(find . -name "libfdt_env.h" -type f | head -1 | dirname)
-            echo "Found libfdt_env.h at $LIBFDT_PATH"
-            ln -sf "$LIBFDT_PATH/libfdt_env.h" scripts/dtc/libfdt_env.h
-          else
-            echo "libfdt_env.h not found, creating it..."
-            $GITHUB_WORKSPACE/create_libfdt_env.sh || {
-              echo "Script failed, creating manually..."
-              mkdir -p scripts/dtc
-              printf '#ifndef LIBFDT_ENV_H\n#define LIBFDT_ENV_H\n#include <stddef.h>\n#include <stdint.h>\n#include <string.h>\ntypedef uint16_t fdt16_t;\ntypedef uint32_t fdt32_t;\ntypedef uint64_t fdt64_t;\n#define fdt16_to_cpu(x) be16toh(x)\n#define cpu_to_fdt16(x) htobe16(x)\n#define fdt32_to_cpu(x) be32toh(x)\n#define cpu_to_fdt32(x) htobe32(x)\n#define fdt64_to_cpu(x) be64toh(x)\n#define cpu_to_fdt64(x) htobe64(x)\n#endif\n' > scripts/dtc/libfdt_env.h
-            }
-          fi
-          # Set environment variables to handle DTC build issues  
-          export HOSTLDFLAGS="-Wl,--allow-multiple-definition -Wl,--warn-common"
-          export HOSTCFLAGS="-DYYLTYPE_IS_DECLARED -DYYLTYPE_IS_TRIVIAL -I. -Iscripts/dtc/libfdt"
-          # Force deletion and regeneration of DTC files to ensure our fixes are applied
-          find . -name "dtc-lexer.lex.c" -delete
-          find . -name "dtc-parser.tab.c" -delete  
-          find . -name "dtc-parser.tab.h" -delete
-          # Pre-compile the scripts target first to fix generated files
-          echo "Pre-compiling scripts to fix DTC files..."
-          make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS scripts || {
-            # If it fails, apply comprehensive fixes to generated files and try again
-            echo "First scripts build failed, applying fixes to generated files..."
-            # Fix lexer file - make yylloc extern
-            find . -name "dtc-lexer.lex.c" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-              echo "Fixing generated lexer file $file"
-              sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
-            done
-            # Fix parser file - ensure it's the only one defining yylloc
-            find . -name "dtc-parser.tab.c" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-              echo "Ensuring parser file $file defines yylloc"
-              # Make sure there's only one definition in the parser
-              if ! grep -q "extern YYLTYPE yylloc;" "$file"; then
-                # If it doesn't have extern, leave it as is (it should define it)
-                echo "Parser file $file will define yylloc"
-              else
-                # If it has extern, change it to definition
-                sed -i 's/extern YYLTYPE yylloc;/YYLTYPE yylloc;/' "$file"
-                echo "Changed parser file $file to define yylloc"
-              fi
-            done
-            # Try scripts build again
-            make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS scripts
-          }
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS prepare modules_prepare
           make -j$(nproc) ARCH=mips CROSS_COMPILE=$CROSS modules #vmlinux
           cp Module.symvers .config /headers
           make mrproper
-          # Apply comprehensive DTC fix again after mrproper cleans everything
-          echo "Re-applying comprehensive DTC fix after mrproper..."
-          find . -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-            echo "Re-applying DTC fix to $file"
-            sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "$file"
-          done
-          # Re-export environment variables for second build
-          export HOSTLDFLAGS="-Wl,--allow-multiple-definition"
-          export HOSTCFLAGS="-DYYLTYPE_IS_DECLARED"
+          # Re-apply DTC yylloc fix after mrproper cleans everything
+          echo "Re-applying DTC yylloc fix after mrproper..."
+          if [ -f scripts/dtc/dtc-lexer.l ]; then
+            patch -p1 -f --dry-run < $GITHUB_WORKSPACE/dtc-yylloc-complete-fix.patch && \
+            patch -p1 -f < $GITHUB_WORKSPACE/dtc-yylloc-complete-fix.patch || \
+            echo "DTC patch already applied or failed"
+          fi
           make -j$(nproc) ARCH=mips O=/headers CROSS_COMPILE=$CROSS prepare modules_prepare scripts
           rm /headers/source /headers/Makefile
           # This is from alpine linux who in turn got it from
@@ -393,11 +303,12 @@ jobs:
           echo "" >> output/.br-external.mk
           # Now try to initialize properly
           make defconfig
-          # Apply DTC fix after kernel is downloaded during defconfig
-          find . -name "dtc-lexer.l" -path "*/scripts/dtc/*" -exec grep -l "YYLTYPE yylloc;" {} \; | while read -r file; do
-            echo "Applying DTC fix to $file"
-            sed -i '/YYLTYPE yylloc;/d' "$file"
-          done
+          # Apply DTC fix for buildroot after kernel is downloaded during defconfig
+          if [ -f output/build/linux-*/scripts/dtc/dtc-lexer.l ]; then
+            echo "Applying DTC fix to buildroot kernel"
+            patch -p1 -d output/build/linux-* -f < $GITHUB_WORKSPACE/unifios/bases/udm-1.9.0-10/linux-patches/linux-0001-dtc-lexer.patch || \
+            echo "Buildroot DTC patch failed or already applied"
+          fi
           # Clean up the default config so individual jobs can use their own
           make clean
           rm -f .config
