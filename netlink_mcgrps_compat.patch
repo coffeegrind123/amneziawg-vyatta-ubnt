@@ -11,3 +11,5 @@
  };
  
  int __init wg_genetlink_init(void)
+ {
+ 	return genl_register_family(&genl_family);
