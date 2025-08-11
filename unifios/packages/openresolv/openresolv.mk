@@ -4,8 +4,8 @@
 #
 ################################################################################
 
-OPENRESOLV_VERSION = 3.10.0
-OPENRESOLV_SITE = https://github.com/rsmarples/openresolv/archive/refs/tags
+OPENRESOLV_VERSION = 3.17.0
+OPENRESOLV_SITE = https://github.com/rsmarples/openresolv/archive
 OPENRESOLV_SOURCE = openresolv-$(OPENRESOLV_VERSION).tar.gz
 OPENRESOLV_LICENSE = BSD-2-Clause
 OPENRESOLV_LICENSE_FILES = LICENSE
