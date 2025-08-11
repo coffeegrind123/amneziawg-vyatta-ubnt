@@ -129,9 +129,8 @@ jobs:
           cd module
           sed -i 's/ --dirty//g' src/Makefile
           patch -p1 < ../siphash_no_fallthrough.patch
-          patch -p1 < ../netlink_genlmsg_multicast.patch
-          patch -p1 < ../netlink_random_api.patch
-          patch -p1 < ../netlink_mcgrps_compat.patch
+          # Apply netlink API compatibility fixes via Python script to avoid patch conflicts
+          python3 ../fix_netlink_api.py
       - name: Upload module source
         uses: actions/upload-artifact@v4
         with:
