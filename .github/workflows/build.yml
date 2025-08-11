@@ -190,9 +190,10 @@ jobs:
           ls -la headers/.config headers/Module.symvers headers/scripts/ 2>/dev/null || echo "Some build files missing"
           cd module/src
           echo "=== Attempting module build ==="
-          echo "Build command: make ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module"
-          # Build the AmnesiaWG module (produces amneziawg.ko, not wireguard.ko)
-          make V=1 ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module
+          echo "Build command: make ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers KERNELRELEASE=4.9.0 module"
+          # Force legacy kernel mode since UBNT devices use older kernels (4.x, not 5.6+)
+          # This prevents AmnesiaWG from trying to build in generated/ directory
+          make V=1 ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers KERNELRELEASE=4.9.0 module
           # Strip the resulting module (AmnesiaWG produces amneziawg.ko)
           if [ -f amneziawg.ko ]; then
             ${{ matrix.toolchain }}strip --strip-debug amneziawg.ko
