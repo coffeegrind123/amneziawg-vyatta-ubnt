@@ -331,7 +331,7 @@ jobs:
       - name: Copy AmnesiaWG source
         run: |
           cp amneziawg-linux-kernel-module-$MODULE_VERSION.tar buildroot-2017.11.1/package/wireguard-linux-compat/
-          cp amneziawg-tools-$TOOLS_VERSION.tar buildroot-2017.11.1/package/wireguard-tools/
+          cp amneziawg-tools-$TOOLS_VERSION.tar buildroot-2017.11.1/package/wireguard-tools/wireguard-tools-$TOOLS_VERSION.tar
       - name: Set package versions
         run: |
           sed -i "s/PACKAGE_VERSION/$MODULE_VERSION/g" buildroot-2017.11.1/package/wireguard-linux-compat/wireguard-linux-compat.mk
