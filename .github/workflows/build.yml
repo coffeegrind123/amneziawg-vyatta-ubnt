@@ -191,23 +191,20 @@ jobs:
           cd module/src
           echo "=== Attempting module build ==="
           echo "Build command: make ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module"
-          # Try to build with verbose output to see what's failing
-          make V=1 ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module 2>&1 || {
-            echo "=== Build failed, checking generated directory ==="
-            ls -la generated/ 2>/dev/null || echo "Generated directory doesn't exist"
-            ls -la . | head -20
-            echo "=== Attempting fallback build without generated directory ==="
-            # Try with the wireguard target instead
-            make V=1 ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers wireguard 2>&1 || exit 1
-          }
-          # Strip the resulting module
-          if [ -f wireguard.ko ]; then
-            ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
-          elif [ -f generated/wireguard.ko ]; then
-            cp generated/wireguard.ko ./
-            ${{ matrix.toolchain }}strip --strip-debug wireguard.ko
+          # Build the AmnesiaWG module (produces amneziawg.ko, not wireguard.ko)
+          make V=1 ARCH=mips CROSS_COMPILE=${{ matrix.toolchain }} KERNELDIR=$GITHUB_WORKSPACE/headers module
+          # Strip the resulting module (AmnesiaWG produces amneziawg.ko)
+          if [ -f amneziawg.ko ]; then
+            ${{ matrix.toolchain }}strip --strip-debug amneziawg.ko
+            # Create symlink with expected name for compatibility
+            ln -sf amneziawg.ko wireguard.ko
+          elif [ -f generated/amneziawg.ko ]; then
+            cp generated/amneziawg.ko ./amneziawg.ko
+            ${{ matrix.toolchain }}strip --strip-debug amneziawg.ko
+            # Create symlink with expected name for compatibility
+            ln -sf amneziawg.ko wireguard.ko
           else
-            echo "ERROR: No wireguard.ko found after build"
+            echo "ERROR: No amneziawg.ko found after build"
             find . -name "*.ko" 2>/dev/null || echo "No .ko files found"
             exit 1
           fi
