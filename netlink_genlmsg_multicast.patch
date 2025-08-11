@@ -1,0 +1,16 @@
+diff --git a/src/netlink.c b/src/netlink.c
+index 0000000..1111111 100644
+--- a/src/netlink.c
++++ b/src/netlink.c
+@@ -983,7 +983,11 @@ static int wg_peer_event(struct wg_peer *peer)
+ 	nla_nest_end(skb, peer_nest);
+ 
+ 	genlmsg_end(skb, hdr);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+ 	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);
++#else
++	ret = genlmsg_multicast(skb, 0, 0, GFP_KERNEL);
++#endif
+ 	return ret;
+ 
+ err:
