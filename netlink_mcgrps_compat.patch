@@ -1,0 +1,13 @@
+--- a/src/netlink.c
++++ b/src/netlink.c
+@@ -918,8 +918,10 @@ static struct genl_family genl_family
+ 	.policy = device_policy,
+ #endif
+ 	.netnsok = true,
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+ 	.mcgrps = wg_genl_mcgrps,
+ 	.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)
++#endif
+ };
+ 
+ int __init wg_genetlink_init(void)
