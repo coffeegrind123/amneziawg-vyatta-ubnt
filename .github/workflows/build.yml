@@ -424,7 +424,7 @@ jobs:
             sed -i -e '/CONFIG_LOCALVERSION=/s/.*/CONFIG_LOCALVERSION="'$ver'"/' kernel-config
             # Pass kernel linker flags via KBUILD_LDFLAGS to avoid -Wl, wrapper
             HOST_LDFLAGS="-Wl,--allow-multiple-definition" KBUILD_LDFLAGS="--allow-multiple-definition" make wireguard-linux-compat-rebuild -j$(nproc)
-            cp output/build/wireguard-linux-compat-$MODULE_VERSION/src/wireguard.ko ../modules/wireguard-${prefix}${ver}.ko
+            cp output/build/wireguard-linux-compat-$MODULE_VERSION/src/amneziawg.ko ../modules/wireguard-${prefix}${ver}.ko
             cp output/build/linux-custom/net/ipv4/netfilter/iptable_raw.ko ../modules/iptable_raw-${prefix}${ver}.ko
             cp output/build/linux-custom/net/ipv6/netfilter/ip6table_raw.ko ../modules/ip6table_raw-${prefix}${ver}.ko
           done)
