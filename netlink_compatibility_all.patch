@@ -1,0 +1,39 @@
+--- a/src/netlink.c
++++ b/src/netlink.c
+@@ -248,7 +248,12 @@ static int generate_ipv6_address_with_prefix(struct in6_addr *addr,
+ 		if (prefix_bits != 0) {
+ 			mask = (u8)(0xFF << (8 - prefix_bits));
+ 			addr[prefix_bytes] &= mask;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
+ 			addr[prefix_bytes] |= get_random_u8() & ~mask;
++#else
++			u8 random_byte;
++			get_random_bytes(&random_byte, 1);
++			addr[prefix_bytes] |= random_byte & ~mask;
++#endif
+ 		}
+ 	}
+ 
+@@ -918,8 +923,10 @@ static struct genl_family genl_family
+ 	.policy = device_policy,
+ #endif
+ 	.netnsok = true,
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+ 	.mcgrps = wg_genl_mcgrps,
+ 	.n_mcgrps = ARRAY_SIZE(wg_genl_mcgrps)
++#endif
+ };
+ 
+ int __init wg_genetlink_init(void)
+@@ -983,7 +990,11 @@ static int wg_peer_event(struct wg_peer *peer)
+ 	nla_nest_end(skb, peer_nest);
+ 
+ 	genlmsg_end(skb, hdr);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+ 	ret = genlmsg_multicast_netns(&genl_family, dev_net(wg->dev), skb, 0, 0, GFP_KERNEL);
++#else
++	ret = genlmsg_multicast(skb, 0, 0, GFP_KERNEL);
++#endif
+ 	return ret;
+ 
+ err:
