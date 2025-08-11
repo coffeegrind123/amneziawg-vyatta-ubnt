@@ -1,1 +1,10 @@
 package/
+
+# GitHub CLI files
+gh_*
+gh.tar.gz
+*.tar.gz
+
+# Build artifacts
+output/
+build/
