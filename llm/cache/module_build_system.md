@@ -66,6 +66,45 @@ module/
 - MODULE_VERSION: "1.0.20241112"  
 - TOOLS_VERSION: "1.0.20250706"
 
+## UBNT EdgeRouter Device Kernel Versions
+
+### EdgeMax Devices (VyattaOS/EdgeOS)
+Based on the ubnt-source.json configuration and workflow analysis, the EdgeRouter devices use **older kernel versions**:
+
+**EdgeRouter E-series (e50, e100, e200, e300, e1000):**
+- **Firmware v1**: Uses firmware version v1.10.11
+- **Firmware v2**: Uses firmware version v2.0.9
+- **Kernel versions**: These are based on **older kernels (pre-5.6)** as evidenced by:
+  - MIPS architecture support (mips64-octeon-linux-, mipsel-mtk-linux-)
+  - Device Tree Compiler (DTC) multiple definition fixes required
+  - Legacy kernel headers listed in buildroot configs go up to 4.19 maximum
+  - WireGuard compatibility module needed (upstream WireGuard built-in since 5.6+)
+
+**UniFi Gateway devices (UGW3, UGW4, UGWXG):**
+- **Firmware version**: 4.4.50
+- **Kernel versions**: Uses **very old kernels (pre-5.6)** based on firmware numbering
+
+### UniFi OS Devices (Modern Devices)
+**UDM/UDR series devices** use **modern kernels (5.6+)**:
+
+- **UDM 1.9.0-10**: Uses **kernel 4.x** (still older)
+- **UDM 1.10.0-8/12**: Uses **kernel 4.x** (still older) 
+- **UDM-SE 2.2.4**: Uses **kernel 4.19.152** (newer but still pre-5.6)
+- **UDR 2.2.12**: Uses **kernel 4.4.198** (older)
+
+### Key Evidence for Kernel Age Classification:
+
+**Indicators of Older Kernels (pre-5.6):**
+1. **WireGuard compatibility module required** - Native WireGuard was introduced in Linux 5.6
+2. **DTC (Device Tree Compiler) fixes needed** - Multiple definition errors common in older kernel builds
+3. **MIPS architecture focus** - EdgeRouters use MIPS processors with legacy kernel support
+4. **Buildroot kernel header options** - Maximum supported is 4.19.x in the configurations
+
+**Conclusion:**
+- **EdgeRouter devices (EdgeMax series)**: Use **older kernels (pre-5.6)**
+- **UniFi OS devices**: Use **kernel 4.4.x to 4.19.x range** - still **older kernels (pre-5.6)**
+- **All UBNT devices in this project use older kernels** requiring the AmnesiaWG compatibility module rather than built-in WireGuard support
+
 ## Key Issue: Missing module/src/generated/Makefile
 
 ### Problem Analysis
@@ -165,3 +204,70 @@ This repository is designed for CI/CD builds only. Local development requires:
 - Applying DTC (Device Tree Compiler) fixes for `yylloc` multiple definition issues
 
 The `modules/` directory in this repo is empty and serves as an output directory for CI builds.
+
+## CI/CD Referenced Files Analysis
+
+### Files Used in CI/CD Pipeline:
+
+**GitHub Actions Workflows:**
+- `.github/workflows/build.yml`
+- `.github/workflows/docker.yml` 
+- `.github/workflows/release.yml`
+
+**Referenced Files from Root Directory:**
+- `siphash_no_fallthrough.patch` - Applied to AmnesiaWG module during CI builds
+- `fix_netlink_api.py` - Used for kernel API compatibility fixes during CI builds
+- `apply_libfdt_fix.sh` - Used in Docker octeon image for DTC fixes
+
+**CI Directory Files (All Used):**
+- `ci/ubnt-source.json` - Contains kernel source URLs for different devices
+- `ci/release_body.md` - Used as template for GitHub releases 
+- `ci/octeon-toolchain.sh` - Used in DOCKERFILE-octeon
+- `ci/mtk-toolchain.sh` - Used in DOCKERFILE-mtk
+- `ci/tools-toolchain.sh` - Used in DOCKERFILE-tools
+- `ci/DOCKERFILE-octeon`, `ci/DOCKERFILE-mtk`, `ci/DOCKERFILE-mipsel`, `ci/DOCKERFILE-tools` - All used
+- `ci/AB9942E6D4A4CFC3412620A749FC7012A5DE03AE.gpg` - GPG key for buildroot
+
+**UnifiOS Directory (All Used):**
+- `unifios/setup_wireguard.sh` - Copied to UnifiOS packages
+- `unifios/bases/` - All subdirectories and files used for different UDM versions
+- `unifios/packages/` - All copied to buildroot during UDM builds
+- `unifios/patches/` - All patch files used:
+  - `0001-bison-glibc-change-work-around.patch`
+  - `0001-m4-glibc-change-work-around.patch` 
+  - `0002-m4-sigstksz-fix.patch`
+  - `944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch`
+  - `add-kernel-4-19.patch`
+  - `openresolv-package.patch`
+  - `wireguard-packages.patch`
+
+**Debian/Opt Directories (All Used):**
+- `debian/` - Entire directory copied to package build
+- `opt/` - Entire directory copied to package build
+
+### Unused Files in Root Directory:
+
+**DTC-related Patch Files (Not referenced in CI):**
+- `dtc-multiple-definition.patch` - Legacy DTC fix, replaced by inline fixes in workflows
+- `dtc-multiple-definition-improved.patch` - Legacy DTC fix, replaced by inline fixes
+- `dtc-yylloc-fix.patch` - Legacy DTC fix, replaced by inline fixes 
+- `dtc-yylloc-complete-fix.patch` - Legacy DTC fix, replaced by inline fixes
+
+**Netlink Patch Files (Not referenced in CI):**
+- `netlink_compatibility_all.patch` - Replaced by `fix_netlink_api.py` script
+- `netlink_genlmsg_multicast.patch` - Replaced by `fix_netlink_api.py` script
+- `netlink_mcgrps_compat.patch` - Replaced by `fix_netlink_api.py` script
+- `netlink_random_api.patch` - Replaced by `fix_netlink_api.py` script
+
+**Libfdt Helper Files (Documentation/Testing Only):**
+- `libfdt-env-fix.patch` - Patch file version of fix, only referenced in README
+- `create_libfdt_env.sh` - Manual helper script, only referenced in README
+- `test_libfdt_fix.sh` - Test script, only referenced in README
+
+**Documentation Files:**
+- `LIBFDT_FIX_README.md` - Documentation only
+- `README.md` - Documentation only 
+- `LICENSE` - License file only
+
+**Empty Output Directory:**
+- `modules/` - Empty directory used as CI output
