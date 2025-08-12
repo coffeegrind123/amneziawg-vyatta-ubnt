@@ -431,7 +431,7 @@ jobs:
       - name: Store modules
         uses: actions/upload-artifact@v4
         with:
-          name: modules
+          name: modules-${{ matrix.base }}
           path: modules
   udm-build-tools:
     needs: [udm-prepare-buildroot]
@@ -481,11 +481,12 @@ jobs:
       - uses: actions/checkout@v2
       - name: Prepare
         run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
-      - name: Restore modules
+      - name: Restore UDM modules
         uses: actions/download-artifact@v4
         with:
-          name: modules
+          pattern: modules-*
           path: package/wireguard/modules
+          merge-multiple: true
       - name: Restore tools
         uses: actions/download-artifact@v4
         with:
