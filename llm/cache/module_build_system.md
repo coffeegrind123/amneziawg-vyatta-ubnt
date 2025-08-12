@@ -271,3 +271,14 @@ The `modules/` directory in this repo is empty and serves as an output directory
 
 **Empty Output Directory:**
 - `modules/` - Empty directory used as CI output
+
+## Repository Cleanup Completed (August 2025)
+
+**Status: CLEANED ✅**
+
+Successfully removed **11 unused files** that were legacy artifacts not used in the current CI/CD pipeline:
+- 4 legacy DTC patch files (replaced by inline workflow fixes)
+- 4 legacy netlink patch files (replaced by fix_netlink_api.py)  
+- 3 development helper files (only referenced in documentation)
+
+The repository is now clean with only actively used files remaining. All CI/CD functionality preserved.
