@@ -100,11 +100,11 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
-            --jq '.artifacts[] | select(.name | startswith("release-")) | .name'
+            --jq '.artifacts[] | select(.name | startswith("release_")) | .name'
           
           # Download all release artifacts using GitHub CLI
           gh run download $RUN_ID \
-            --pattern "release-*" \
+            --pattern "release_*" \
             --dir release-assets/
           
           echo "✅ Downloaded artifacts to release-assets/"
