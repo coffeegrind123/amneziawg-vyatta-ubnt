@@ -19,14 +19,11 @@ jobs:
 
     strategy:
         matrix:
-          tag: [mips, mipsel, mtk, octeon]
-          type: [kernel, tools]
-          exclude:
-            - tag: mips
-              type: kernel
-            - tag: mtk
-              type: tools
+          # ER-4 (e300) only needs the octeon kernel toolchain + big-endian mips tools
+          include:
             - tag: octeon
+              type: kernel
+            - tag: mips
               type: tools
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/ubnt-build:${{ matrix.tag }}-${{ matrix.type }}

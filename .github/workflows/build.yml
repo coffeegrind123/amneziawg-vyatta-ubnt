@@ -35,26 +35,10 @@ jobs:
 
     strategy:
       matrix:
-        device: [e100, e200, e300, e1000, ugw3, ugw4, ugwxg]
+        device: [e300]
         version: [1, 2]
         toolchain: [mips64-octeon-linux-]
         image: [octeon-kernel]
-        exclude:
-          - device: ugw3
-            version: 2
-          - device: ugw4
-            version: 2
-          - device: ugwxg
-            version: 2
-        include:
-          - device: e50
-            version: 1
-            toolchain: mipsel-mtk-linux-
-            image: mtk-kernel
-          - device: e50
-            version: 2
-            toolchain: mipsel-linux-gnu-
-            image: mipsel-kernel
 
     steps:
       - uses: actions/checkout@v4
@@ -150,26 +134,10 @@ jobs:
 
     strategy:
       matrix:
-        device: [e100, e200, e300, e1000, ugw3, ugw4, ugwxg]
+        device: [e300]
         version: [1, 2]
         toolchain: [mips64-octeon-linux-]
         image: [octeon-kernel]
-        exclude:
-          - device: ugw3
-            version: 2
-          - device: ugw4
-            version: 2
-          - device: ugwxg
-            version: 2
-        include:
-          - device: e50
-            version: 1
-            toolchain: mipsel-mtk-linux-
-            image: mtk-kernel
-          - device: e50
-            version: 2
-            toolchain: mipsel-mtk-linux-
-            image: mtk-kernel
 
     steps:
       - uses: actions/checkout@v4
@@ -229,8 +197,6 @@ jobs:
         include:
           - arch: mips
             target: mips-linux-musl
-          - arch: mipsel
-            target: mipsel-linux-musl
     steps:
       - uses: actions/checkout@v4
       - name: Build tools
@@ -260,23 +226,9 @@ jobs:
 
     strategy:
       matrix:
-        device: [e100, e200, e300, e1000, ugw3, ugw4, ugwxg]
+        device: [e300]
         version: [1, 2]
         arch: [mips]
-        exclude:
-          - device: ugw3
-            version: 2
-          - device: ugw4
-            version: 2
-          - device: ugwxg
-            version: 2
-        include:
-          - device: e50
-            version: 1
-            arch: mipsel
-          - device: e50
-            version: 2
-            arch: mipsel
     steps:
       - uses: actions/checkout@v4
       - name: Download module
@@ -315,234 +267,6 @@ jobs:
           name: release_${{ matrix.device }}-v${{ matrix.version }}
           path: ${{ matrix.device }}-v${{ matrix.version }}-v${{ env.MODULE_VERSION }}-v${{ env.TOOLS_VERSION }}.deb
 
-  udm-prepare-buildroot:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download buildroot-2017.11.1
-        run: |
-          curl -o buildroot.tar.bz2 https://buildroot.org/downloads/buildroot-2017.11.1.tar.bz2
-          tar -xf buildroot.tar.bz2
-      - name: Download AmnesiaWG module source and apply patches
-        run: |
-          curl -L -o amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
-          tar -xf amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz
-          cd amneziawg-linux-kernel-module-$MODULE_VERSION
-          # Apply kernel API compatibility fixes for UDM builds
-          sed -i 's/ --dirty//g' src/Makefile
-          patch -p1 < ../siphash_no_fallthrough.patch || echo "siphash patch already applied upstream or not needed for module $MODULE_VERSION"
-          python3 ../fix_netlink_api.py
-          # Wrap skb_put_data with version check - only for kernels < 4.4.0
-          # Newer kernels (including 4.4.x with backports) already have this function
-          awk '/^static inline void \*skb_put_data/{print "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)"} {print} /^static inline void \*skb_put_data/,/^}$/{if(/^}$/)print "#endif"}' src/compat/compat.h > src/compat/compat.h.tmp && mv src/compat/compat.h.tmp src/compat/compat.h
-          # Fix for old kernels (4.1.37) - replace skb_put_data usage with memcpy+skb_put
-          sed -i 's/skb_put_data(skb, buffer, len);/memcpy(skb_put(skb, len), buffer, len);/' src/socket.c
-          cd ..
-          tar -cf amneziawg-linux-kernel-module-$MODULE_VERSION.tar amneziawg-linux-kernel-module-$MODULE_VERSION/
-      - name: Copy packages
-        run: cp -pr unifios/packages/amneziawg-linux-compat buildroot-2017.11.1/package/amneziawg-linux-compat
-      - name: Copy AmneziaWG source
-        run: |
-          cp amneziawg-linux-kernel-module-$MODULE_VERSION.tar buildroot-2017.11.1/package/amneziawg-linux-compat/amneziawg-linux-compat-$MODULE_VERSION.tar
-      - name: Download AmnesiaWG tools source
-        run: |
-          curl -L -o amneziawg-tools-$TOOLS_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v$TOOLS_VERSION.tar.gz
-          tar -xf amneziawg-tools-$TOOLS_VERSION.tar.gz
-          tar -cf amneziawg-tools-$TOOLS_VERSION.tar amneziawg-tools-$TOOLS_VERSION/
-      - name: Copy amneziawg-tools packages
-        run: cp -pr unifios/packages/amneziawg-tools buildroot-2017.11.1/package/amneziawg-tools
-      - name: Copy AmneziaWG tools source
-        run: |
-          cp amneziawg-tools-$TOOLS_VERSION.tar buildroot-2017.11.1/package/amneziawg-tools/amneziawg-tools-$TOOLS_VERSION.tar
-      - name: Set package versions
-        run: |
-          sed -i "s/PACKAGE_VERSION/$MODULE_VERSION/g" buildroot-2017.11.1/package/amneziawg-linux-compat/amneziawg-linux-compat.mk
-          sed -i "s/PACKAGE_VERSION/$TOOLS_VERSION/g" buildroot-2017.11.1/package/amneziawg-tools/amneziawg-tools.mk
-      - name: Patches
-        run: |
-          patch -p0 <unifios/patches/amneziawg-packages.patch
-          patch -d buildroot-2017.11.1 -p1 <unifios/patches/add-kernel-4-19.patch
-          cp unifios/patches/0001-m4-glibc-change-work-around.patch buildroot-2017.11.1/package/m4/
-          cp unifios/patches/0002-m4-sigstksz-fix.patch buildroot-2017.11.1/package/m4/
-          cp unifios/patches/0001-bison-glibc-change-work-around.patch buildroot-2017.11.1/package/bison/
-          cp unifios/patches/944-mpc-relative-literal-loads-logic-in-aarch64_classify_symbol.patch buildroot-2017.11.1/package/gcc/6.4.0/
-      - name: Initialize buildroot
-        run: |
-          cd buildroot-2017.11.1
-          # Create the output directory structure that buildroot expects
-          mkdir -p output
-          # Create an empty .br-external.mk to bootstrap the build system
-          echo "# Automatically generated file; DO NOT EDIT." > output/.br-external.mk
-          echo "" >> output/.br-external.mk
-          # Now try to initialize properly
-          make defconfig
-          # Apply DTC fix for buildroot after kernel is downloaded during defconfig
-          find output/build/linux-*/scripts/dtc/ -name "dtc-lexer.l" -exec grep -l "YYLTYPE yylloc" {} \; 2>/dev/null | while read -r file; do
-            echo "Fixing buildroot DTC source file: $file"
-            sed -i 's/^[[:space:]]*YYLTYPE[[:space:]]\+yylloc[[:space:]]*;[[:space:]]*$/extern YYLTYPE yylloc;/' "$file"
-          done
-          # Also fix any generated files in buildroot
-          find output/build/linux-*/scripts/dtc/ -name "dtc-lexer.lex.c*" -exec grep -l "YYLTYPE yylloc" {} \; 2>/dev/null | while read -r file; do
-            echo "Fixing buildroot DTC generated file: $file"
-            sed -i 's/^[[:space:]]*YYLTYPE[[:space:]]\+yylloc[[:space:]]*;[[:space:]]*$/extern YYLTYPE yylloc;/' "$file"
-          done
-          # Clean up the default config so individual jobs can use their own
-          make clean
-          rm -f .config
-      - name: Generate artifacts
-        run: tar -cf buildroot.tar buildroot-2017.11.1
-      - name: Store headers
-        uses: actions/upload-artifact@v4
-        with:
-          name: buildroot
-          path: buildroot.tar
-  udm-build-modules:
-    needs: [udm-prepare-buildroot]
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        base: [udm-1.9.0-10, udm-1.10.0-8, udm-1.10.0-12, udm-se-2.2.4, udr-2.2.12]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Restore buildroot
-        uses: actions/download-artifact@v4
-        with:
-          name: buildroot
-      - name: Extract buildroot
-        run: tar -xf buildroot.tar
-      - name: Build wireguard module
-        run: |
-          mkdir -p modules
-          cp unifios/bases/${{ matrix.base }}/buildroot-config.txt buildroot-2017.11.1/.config
-          cp unifios/bases/${{ matrix.base }}/kernel-config buildroot-2017.11.1/kernel-config
-          versions="$(cat unifios/bases/${{ matrix.base }}/versions.txt)"
-          prefix="$(cat unifios/bases/${{ matrix.base }}/prefix)"
-          rm -rf ./buildroot-2017.11.1/linux-patches ./buildroot-2017.11.1/patches
-          if [ -d "unifios/bases/${{ matrix.base }}/linux-patches" ]; then
-            cp -rf "unifios/bases/${{ matrix.base }}/linux-patches" ./buildroot-2017.11.1/
-          fi
-          if [ -f "unifios/bases/${{ matrix.base }}/linux-patches.tar.gz" ]; then
-            tar -C ./buildroot-2017.11.1 -xf "unifios/bases/${{ matrix.base }}/linux-patches.tar.gz"
-          fi
-          if [ -d "unifios/bases/${{ matrix.base }}/patches" ]; then
-            cp -rf "unifios/bases/${{ matrix.base }}/patches" ./buildroot-2017.11.1/
-          fi
-          cd buildroot-2017.11.1
-          # Apply DTC multiple definition fix for UDM buildroot
-          # Set HOST_LDFLAGS for host tools (uses -Wl, wrapper for gcc/g++)
-          export HOST_LDFLAGS="-Wl,--allow-multiple-definition"
-          make oldconfig
-          # Build each kernel version sequentially within this job
-          (IFS=','
-          for ver in $versions; do
-            echo "Building version $ver for ${{ matrix.base }}"
-            make amneziawg-linux-compat-dirclean
-            sed -i -e '/CONFIG_LOCALVERSION=/s/.*/CONFIG_LOCALVERSION="'$ver'"/' kernel-config
-            # Pass kernel linker flags via KBUILD_LDFLAGS to avoid -Wl, wrapper
-            # Use V=1 for verbose output to see compilation errors
-            HOST_LDFLAGS="-Wl,--allow-multiple-definition" KBUILD_LDFLAGS="--allow-multiple-definition" make V=1 amneziawg-linux-compat-rebuild -j$(nproc) 2>&1 | tee /tmp/build-${{ matrix.base }}-$ver.log
-            if [ ${PIPESTATUS[0]} -ne 0 ]; then
-              echo "Build failed for version $ver (${{ matrix.base }}). Showing last 100 lines of build log:"
-              tail -100 /tmp/build-${{ matrix.base }}-$ver.log
-              exit 1
-            fi
-            cp output/build/amneziawg-linux-compat-$MODULE_VERSION/src/amneziawg.ko ../modules/amneziawg-${prefix}${ver}.ko
-            cp output/build/linux-custom/net/ipv4/netfilter/iptable_raw.ko ../modules/iptable_raw-${prefix}${ver}.ko
-            cp output/build/linux-custom/net/ipv6/netfilter/ip6table_raw.ko ../modules/ip6table_raw-${prefix}${ver}.ko
-          done)
-      - name: Store modules
-        uses: actions/upload-artifact@v4
-        with:
-          name: modules-${{ matrix.base }}
-          path: modules
-  udm-build-tools:
-    needs: [udm-prepare-buildroot]
-    runs-on: ubuntu-24.04
-    env:
-      BASE: udm-1.9.0-10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Restore buildroot
-        uses: actions/download-artifact@v4
-        with:
-          name: buildroot
-      - name: Extract buildroot
-        run: tar -xf buildroot.tar
-      - name: Configure buildroot
-        run: |
-          cp unifios/bases/${{ env.BASE }}/buildroot-config.txt buildroot-2017.11.1/.config
-          cp unifios/bases/${{ env.BASE }}/kernel-config buildroot-2017.11.1/kernel-config
-          cd buildroot-2017.11.1
-          make oldconfig
-      - name: Build AmneziaWG tools
-        run: cd buildroot-2017.11.1 && make amneziawg-tools-rebuild # -> output/target/usr/bin/awg
-      - name: Build bash
-        run: cd buildroot-2017.11.1 && make bash-rebuild # -> output/target/bin/bash
-      - name: Build qrencode
-        run: cd buildroot-2017.11.1 && make libqrencode-rebuild # -> output/target/usr/bin/qrencode
-      - name: Collect tools
-        run: |
-          mkdir -p tools
-          cp buildroot-2017.11.1/output/target/usr/bin/awg tools/awg
-          cp buildroot-2017.11.1/output/target/bin/bash tools/
-          cp buildroot-2017.11.1/output/target/usr/bin/qrencode tools/
-          # Find and copy wg-quick script (location may vary)
-          if [ -f buildroot-2017.11.1/output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ]; then
-            cp buildroot-2017.11.1/output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash tools/awg-quick
-          elif [ -f buildroot-2017.11.1/output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ]; then
-            cp buildroot-2017.11.1/output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash tools/awg-quick
-          elif [ -f buildroot-2017.11.1/output/target/usr/bin/wg-quick ]; then
-            cp buildroot-2017.11.1/output/target/usr/bin/wg-quick tools/awg-quick
-          else
-            echo "Warning: wg-quick not found, creating stub"
-            echo '#!/bin/bash' > tools/awg-quick
-            echo 'echo "wg-quick stub for AmneziaWG"' >> tools/awg-quick
-          fi
-          chmod +x tools/awg-quick
-      - name: Store tools
-        uses: actions/upload-artifact@v4
-        with:
-          name: tools
-          path: tools
-  udm-package:
-    needs: [udm-build-tools, udm-build-modules]
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Prepare
-        run: mkdir -p package package/amneziawg package/amneziawg/modules package/amneziawg/tools package/amneziawg/etc
-      - name: Restore UDM modules
-        uses: actions/download-artifact@v4
-        with:
-          pattern: modules-*
-          path: package/amneziawg/modules
-          merge-multiple: true
-      - name: Restore tools
-        uses: actions/download-artifact@v4
-        with:
-          name: tools
-          path: package/amneziawg/tools
-      - name: Add setup
-        run: cp unifios/setup_amneziawg.sh package/amneziawg/
-      - name: Fix permissions
-        run: |
-          # resolvconf.conf was removed, skip if not present
-          if [ -f package/amneziawg/tools/resolvconf.conf ]; then
-            mv package/amneziawg/tools/resolvconf.conf package/amneziawg/etc
-          fi
-          chmod +x package/amneziawg/tools/* package/amneziawg/setup_amneziawg.sh
-          sudo chown -R root:root package/amneziawg
-      - name: Package
-        run: tar -C package -czf UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz ./
-      - name: Store package
-        uses: actions/upload-artifact@v4
-        with:
-          name: release_unifios
-          path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
-
-  # NOTE: the GitHub Release is created by the separate release.yml workflow, which
-  # triggers on this workflow's successful completion (workflow_run). The previous
-  # inline release job used the abandoned fossoreslp/release-artifacts@v1 action and
-  # duplicated release.yml; it has been removed in favour of the modern
-  # ncipollo/release-action@v1 flow in release.yml.
+  # ER-4 (e300) tailored build: EdgeRouter is not a UniFi OS device, so the UDM/UDR
+  # buildroot pipeline has been removed. The GitHub Release is created by release.yml,
+  # which triggers on this workflow's successful completion (workflow_run).
