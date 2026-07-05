@@ -13,7 +13,7 @@ It runs **alongside** the standard WireGuard without interfering with it.
 - **No Interference**: Does not affect or replace the standard WireGuard installation
 - **Full CLI Support**: Configure via `set interfaces amneziawg awg0` commands
 
-For a full list of supported devices, please see the latest release at [releases](https://github.com/paramosh/amneziawg-vyatta-ubnt/releases).
+For a full list of supported devices, please see the latest release at [releases](https://github.com/coffeegrind123/amneziawg-vyatta-ubnt/releases).
 
 The installation instructions can be found in the Wiki:
 
@@ -75,6 +75,8 @@ Support for EdgeOS and Unifi Gateway was originally developed by [@Lochnair](htt
 Support for UnifiOS was developed by [@tusc](https://github.com/tusc) and integrated into this repository by [@peacey](https://github.com/peacey).
 See the [list of contributors](https://github.com/WireGuard/wireguard-vyatta-ubnt/graphs/contributors) and the [commit history](https://github.com/WireGuard/wireguard-vyatta-ubnt/commits/master) for the many other contributions.
 
-Amnezia-WG support and modifications by [@paramosh](https://github.com/paramosh).
+Amnezia-WG support by [@coffeegrind123](https://github.com/coffeegrind123). The distinct
+`amneziawg`/`awg` namespace, obfuscation-parameter CLI, kernel-compat fixes and WireGuard
+coexistence packaging are derived from the [@paramosh](https://github.com/paramosh) fork.
 
 Original AmneziaWG project: https://github.com/amnezia-vpn
