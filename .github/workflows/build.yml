@@ -8,12 +8,17 @@ on:
   workflow_dispatch:
 
 env:
-  MODULE_VERSION: "1.0.20241112"
-  TOOLS_VERSION: "1.0.20250706"
+  MODULE_VERSION: "1.0.20260329-2"
+  TOOLS_VERSION: "1.0.20260223"
   PACKAGE_RELEASE: "1"
   FIRMWARE_ER_v1: "v1.10.11"
   FIRMWARE_ER_v2: "v2.0.9"
   FIRMWARE_UGW: "4.4.50"
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
 
 jobs:
   docker:
@@ -52,7 +57,7 @@ jobs:
             image: mipsel-kernel
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Build headers
         run: |
           mkdir /headers
@@ -121,14 +126,14 @@ jobs:
       image: buildpack-deps:focal
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Download module source
         run: |
           curl -L -o amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
           tar -xf amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz --one-top-level=module --strip-components=1
           cd module
           sed -i 's/ --dirty//g' src/Makefile
-          patch -p1 < ../siphash_no_fallthrough.patch
+          patch -p1 < ../siphash_no_fallthrough.patch || echo "siphash patch already applied upstream or not needed for module $MODULE_VERSION"
           # Apply netlink API compatibility fixes via Python script to avoid patch conflicts
           python3 ../fix_netlink_api.py
       - name: Upload module source
@@ -167,7 +172,7 @@ jobs:
             image: mtk-kernel
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Restore module source
         uses: actions/download-artifact@v4
         with:
@@ -227,7 +232,7 @@ jobs:
           - arch: mipsel
             target: mipsel-linux-musl
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Build tools
         env:
           TARGET: ${{ matrix.target }}
@@ -273,7 +278,7 @@ jobs:
             version: 2
             arch: mipsel
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Download module
         uses: actions/download-artifact@v4
         with:
@@ -313,7 +318,7 @@ jobs:
   udm-prepare-buildroot:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Download buildroot-2017.11.1
         run: |
           curl -o buildroot.tar.bz2 https://buildroot.org/downloads/buildroot-2017.11.1.tar.bz2
@@ -325,7 +330,7 @@ jobs:
           cd amneziawg-linux-kernel-module-$MODULE_VERSION
           # Apply kernel API compatibility fixes for UDM builds
           sed -i 's/ --dirty//g' src/Makefile
-          patch -p1 < ../siphash_no_fallthrough.patch
+          patch -p1 < ../siphash_no_fallthrough.patch || echo "siphash patch already applied upstream or not needed for module $MODULE_VERSION"
           python3 ../fix_netlink_api.py
           # Wrap skb_put_data with version check - only for kernels < 4.4.0
           # Newer kernels (including 4.4.x with backports) already have this function
@@ -399,7 +404,7 @@ jobs:
       matrix:
         base: [udm-1.9.0-10, udm-1.10.0-8, udm-1.10.0-12, udm-se-2.2.4, udr-2.2.12]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Restore buildroot
         uses: actions/download-artifact@v4
         with:
@@ -457,7 +462,7 @@ jobs:
     env:
       BASE: udm-1.9.0-10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Restore buildroot
         uses: actions/download-artifact@v4
         with:
@@ -504,7 +509,7 @@ jobs:
     needs: [udm-build-tools, udm-build-modules]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Prepare
         run: mkdir -p package package/amneziawg package/amneziawg/modules package/amneziawg/tools package/amneziawg/etc
       - name: Restore UDM modules
@@ -536,19 +541,8 @@ jobs:
           name: release_unifios
           path: UnifiOS-${{ env.MODULE_VERSION }}-${{ env.TOOLS_VERSION }}.tar.gz
 
-  release:
-    runs-on: ubuntu-24.04
-    needs:
-      - package
-      - udm-package
-
-    steps:
-      - uses: actions/checkout@v2
-      - name: Create Release
-        id: create_release
-        uses: fossoreslp/release-artifacts@v1
-        with:
-          title: AmneziaWG ${{ env.MODULE_VERSION }} ${{ env.TOOLS_VERSION }}
-          template: ci/release_body.md
-          token: ${{ secrets.GITHUB_TOKEN }}
-          variables: ${{ toJSON(env) }}
+  # NOTE: the GitHub Release is created by the separate release.yml workflow, which
+  # triggers on this workflow's successful completion (workflow_run). The previous
+  # inline release job used the abandoned fossoreslp/release-artifacts@v1 action and
+  # duplicated release.yml; it has been removed in favour of the modern
+  # ncipollo/release-action@v1 flow in release.yml.

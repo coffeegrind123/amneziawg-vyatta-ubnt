@@ -1,12 +1,14 @@
 name: Build docker build environments
 
 on:
-  push:
-    branches:
-      - "master"
-  pull_request:
   workflow_dispatch:
   workflow_call:
+
+# Grant the built-in GITHUB_TOKEN permission to push the toolchain images to GHCR.
+# Without packages:write the default token is read-only and `docker push` 403s.
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   # Push image to GitHub Packages.
@@ -30,7 +32,7 @@ jobs:
       IMAGE: ghcr.io/${{ github.repository_owner }}/ubnt-build:${{ matrix.tag }}-${{ matrix.type }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Log into GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
