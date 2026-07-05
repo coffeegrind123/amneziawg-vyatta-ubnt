@@ -1,0 +1,108 @@
+# syntax=docker/dockerfile:1
+#
+# Dedicated LOCAL build of the AmneziaWG package for the EdgeRouter 4
+# (device e300, EdgeOS v2, Cavium Octeon MIPS64 big-endian, kernel 4.9.79-UBNT).
+#
+# Reproduces the whole GitHub Actions pipeline (docker.yml + build.yml) in one
+# multi-stage build: two cross-toolchains -> kernel headers -> amneziawg.ko ->
+# awg tools -> .deb. Output matches the CI release exactly.
+#
+# Build (BuildKit required; emits the .deb into ./out/):
+#   DOCKER_BUILDKIT=1 docker build -f Dockerfile.er4 --target export -o out .
+#
+# Override versions/device at build time with --build-arg, e.g. FW=1 for EdgeOS v1.
+#
+ARG MODULE_VERSION=1.0.20260329-2
+ARG TOOLS_VERSION=1.0.20260223
+ARG PACKAGE_RELEASE=1
+ARG DEVICE=e300
+ARG FW=2
+# e300 EdgeOS v2 GPL kernel source (from ci/ubnt-source.json .e300."2")
+ARG KERNEL_GPL_URL=https://dl.ui.com/firmwares/edgemax/v2.0.9/gpl/GPL.ER-e300.v2.0.9.5346345.tar.bz2
+
+# ============================================================================
+# Stage 1 - Octeon (MIPS64) kernel cross-toolchain   [mirrors ci/DOCKERFILE-octeon]
+# ============================================================================
+FROM debian:bullseye-slim AS octeon-tc
+RUN apt-get update && apt-get install -y \
+        autoconf automake bc bison build-essential curl dpkg-dev fakeroot file \
+        flex gawk git libgmp-dev libmpc-dev libmpfr-dev libtool texinfo cpio wget \
+        jq libfdt-dev device-tree-compiler kmod python3 patch \
+    && rm -rf /var/lib/apt/lists/*
+ENV PATH="/opt/cross/bin:${PATH}"
+COPY ci/octeon-toolchain.sh /build_toolchain.sh
+COPY apply_libfdt_fix.sh /apply_libfdt_fix.sh
+RUN chmod +x /build_toolchain.sh /apply_libfdt_fix.sh && /build_toolchain.sh
+
+# ============================================================================
+# Stage 2 - musl MIPS (big-endian) tools cross-toolchain  [mirrors ci/DOCKERFILE-tools]
+# ============================================================================
+FROM alpine:3.18 AS tools-tc
+RUN apk add --no-cache --update-cache \
+        autoconf automake bash bc bison build-base coreutils curl file flex gawk \
+        git gmp-dev libtool linux-headers mpc1-dev mpfr-dev shadow su-exec texinfo \
+        wget kmod gnupg jq rsync
+ENV BINUTILS_VER=2.32 GCC_VER=8.3.0 GMP_VER=6.1.2 ISL_VER=0.19 KERNEL_VER=5.4.290 \
+    MPC_VER=1.1.0 MPFR_VER=4.0.2 MUSL_VER=1.1.22
+ENV PATH="/opt/cross/bin:${PATH}"
+ENV ARCH=mips TARGET=mips-linux-musl
+COPY ci/tools-toolchain.sh /build_toolchain.sh
+RUN chmod +x /build_toolchain.sh && /build_toolchain.sh
+
+# ============================================================================
+# Stage 3 - kernel headers + amneziawg.ko   [mirrors build.yml headers + module]
+# ============================================================================
+FROM octeon-tc AS kmod
+ARG MODULE_VERSION DEVICE FW KERNEL_GPL_URL
+ENV CROSS=mips64-octeon-linux- REPO=/repo
+COPY . /repo
+RUN cp /repo/ci/local-kmod.sh /local-kmod.sh && chmod +x /local-kmod.sh \
+    && DEVICE="$DEVICE" FW="$FW" CROSS="$CROSS" KERNEL_GPL_URL="$KERNEL_GPL_URL" \
+       MODULE_VERSION="$MODULE_VERSION" REPO=/repo /local-kmod.sh
+
+# ============================================================================
+# Stage 4 - awg userspace tools (static, musl)   [mirrors build.yml tools]
+# ============================================================================
+FROM tools-tc AS awgtools
+ARG TOOLS_VERSION
+RUN cd /tmp \
+    && curl -fsSL -o t.tar.gz \
+        "https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v${TOOLS_VERSION}.tar.gz" \
+    && tar -xf t.tar.gz && mv "amneziawg-tools-${TOOLS_VERSION}" tools \
+    && cd tools/src \
+    && CC="mips-linux-musl-gcc" LDLIBS="-static" make -j"$(nproc)" \
+    && mips-linux-musl-strip --strip-unneeded wg \
+    && mv wg awg && mkdir -p /out && cp awg /out/
+
+# ============================================================================
+# Stage 5 - assemble the .deb   [mirrors build.yml package]
+# ============================================================================
+FROM debian:bullseye-slim AS pkg
+ARG MODULE_VERSION TOOLS_VERSION PACKAGE_RELEASE DEVICE FW
+RUN apt-get update && apt-get install -y kmod && rm -rf /var/lib/apt/lists/*
+COPY . /repo
+COPY --from=kmod /out/amneziawg.ko /work/amneziawg.ko
+COPY --from=awgtools /out/awg /work/awg
+RUN set -eux; cd /work; \
+    KERNEL="$(modinfo -F vermagic amneziawg.ko | cut -d ' ' -f 1)"; \
+    mkdir -p "pkg/usr/bin" "pkg/lib/modules/${KERNEL}/kernel/net"; \
+    cp -r /repo/debian pkg/DEBIAN; cp -r /repo/opt pkg/opt; \
+    rm -rf pkg/opt/vyatta/share/vyatta-cfg/templates/interfaces/wireguard \
+           pkg/opt/vyatta/share/vyatta-op/templates/show/interfaces/wireguard \
+           pkg/opt/vyatta/share/vyatta-op/templates/clear/interfaces/wireguard; \
+    cp amneziawg.ko "pkg/lib/modules/${KERNEL}/kernel/net/amneziawg.ko"; \
+    cp awg pkg/usr/bin/awg; chmod +x pkg/usr/bin/awg; \
+    sed -i "s/PACKAGE_VERSION/${MODULE_VERSION}/g" pkg/DEBIAN/control; \
+    sed -i "s/PACKAGE_RELEASE/${PACKAGE_RELEASE}/g" pkg/DEBIAN/control; \
+    sed -i "s/KERNEL_VER/${KERNEL}/g" pkg/DEBIAN/preinst; \
+    sed -i "s/PACKAGE_ARCH/mips/g" pkg/DEBIAN/control; \
+    dpkg-deb -b -Z gzip pkg; \
+    mkdir -p /out; \
+    mv pkg.deb "/out/${DEVICE}-v${FW}-v${MODULE_VERSION}-v${TOOLS_VERSION}.deb"; \
+    ls -l /out
+
+# ============================================================================
+# Stage 6 - export just the .deb (docker build ... --target export -o out .)
+# ============================================================================
+FROM scratch AS export
+COPY --from=pkg /out/*.deb /
