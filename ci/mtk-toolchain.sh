@@ -8,12 +8,12 @@ SRC_ROOT="/usr/src/sources"
 mkdir -p $BUILD_ROOT/binutils $BUILD_ROOT/gcc $SRC_ROOT
 cd /usr/src
 wget -nv \
-	http://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.xz \
-	http://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.bz2 \
-	http://ftp.gnu.org/gnu/gmp/gmp-$GMP_VER.tar.xz \
+	https://ftp.halifax.rwth-aachen.de/gnu/binutils/binutils-$BINUTILS_VER.tar.xz \
+	https://ftp.halifax.rwth-aachen.de/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.bz2 \
+	https://ftp.halifax.rwth-aachen.de/gnu/gmp/gmp-$GMP_VER.tar.xz \
 	https://libisl.sourceforge.io/isl-$ISL_VER.tar.xz \
-	http://ftp.gnu.org/gnu/mpc/mpc-$MPC_VER.tar.gz \
-	http://ftp.gnu.org/gnu/mpfr/mpfr-$MPFR_VER.tar.xz
+	https://ftp.halifax.rwth-aachen.de/gnu/mpc/mpc-$MPC_VER.tar.gz \
+	https://ftp.halifax.rwth-aachen.de/gnu/mpfr/mpfr-$MPFR_VER.tar.xz
 
 # Extract source archives
 cd $SRC_ROOT
@@ -37,7 +37,8 @@ make install
 
 # GCC - stage 1
 cd $BUILD_ROOT/gcc
-$SRC_ROOT/gcc-$GCC_VER/configure --prefix=/opt/cross --target=$TARGET --disable-fixed-point --disable-multilib --disable-sim --enable-languages=c --with-abi=32 --with-float=soft --with-mips-plt
+# -std=gnu++14 lets the vintage GCC 4.8.5 sources compile under a modern host g++
+CXXFLAGS="-std=gnu++14" $SRC_ROOT/gcc-$GCC_VER/configure --prefix=/opt/cross --target=$TARGET --disable-fixed-point --disable-multilib --disable-sim --enable-languages=c --with-abi=32 --with-float=soft --with-mips-plt
 make -j$(nproc) all-gcc
 make install-gcc
 

@@ -9,13 +9,13 @@ SRC_ROOT="/usr/src/sources"
 mkdir -p $BUILD_ROOT/binutils $BUILD_ROOT/gcc $BUILD_ROOT/musl $SRC_ROOT
 cd /usr/src
 wget -nv \
-	http://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.xz \
-	http://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.xz \
-	http://ftp.gnu.org/gnu/gmp/gmp-$GMP_VER.tar.xz \
+	https://ftp.halifax.rwth-aachen.de/gnu/binutils/binutils-$BINUTILS_VER.tar.xz \
+	https://ftp.halifax.rwth-aachen.de/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.xz \
+	https://ftp.halifax.rwth-aachen.de/gnu/gmp/gmp-$GMP_VER.tar.xz \
 	https://libisl.sourceforge.io/isl-$ISL_VER.tar.xz \
 	https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-$KERNEL_VER.tar.xz \
-	http://ftp.gnu.org/gnu/mpc/mpc-$MPC_VER.tar.gz \
-	http://ftp.gnu.org/gnu/mpfr/mpfr-$MPFR_VER.tar.xz \
+	https://ftp.halifax.rwth-aachen.de/gnu/mpc/mpc-$MPC_VER.tar.gz \
+	https://ftp.halifax.rwth-aachen.de/gnu/mpfr/mpfr-$MPFR_VER.tar.xz \
 	https://www.musl-libc.org/releases/musl-$MUSL_VER.tar.gz
 
 
@@ -36,13 +36,14 @@ make ARCH=mips INSTALL_HDR_PATH=/opt/cross/$TARGET/ headers_install
 
 # Binutils
 cd $BUILD_ROOT/binutils
-$SRC_ROOT/binutils-$BINUTILS_VER/configure --prefix=/opt/cross --target=$TARGET --disable-multilib --disable-werror
+# -std=gnu11 + --disable-nls let the vintage binutils configure/compile under a modern host GCC
+CFLAGS="-std=gnu11" $SRC_ROOT/binutils-$BINUTILS_VER/configure --prefix=/opt/cross --target=$TARGET --disable-multilib --disable-werror --disable-nls
 make -j$(nproc)
 make install
 
 # GCC - stage 1
 cd $BUILD_ROOT/gcc
-$SRC_ROOT/gcc-$GCC_VER/configure --prefix=/opt/cross --target=$TARGET --disable-multilib --disable-sim --enable-languages=c,c++ --with-abi=32 --with-mips-plt
+$SRC_ROOT/gcc-$GCC_VER/configure --prefix=/opt/cross --target=$TARGET --disable-multilib --disable-sim --disable-nls --enable-languages=c,c++ --with-abi=32 --with-mips-plt
 make -j$(nproc) all-gcc
 make install-gcc
 
