@@ -1,0 +1,9 @@
+priority: 500
+type: bool
+help: Add routes for allowed-ips
+default: true
+
+val_help: true; Enable adding routes for allowed IPs
+val_help: false; Disable adding routes for allowed IPs
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "route-allowed-ips"

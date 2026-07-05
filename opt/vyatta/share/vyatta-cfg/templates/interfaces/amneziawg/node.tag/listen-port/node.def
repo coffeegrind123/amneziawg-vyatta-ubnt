@@ -1,0 +1,8 @@
+priority: 480
+type: u32
+help: Local port number to accept connections
+syntax:expression: $VAR(@) > 0 && $VAR(@) < 65536;
+                   "Port must be between 1 and 65535"
+val_help: u32:1-65535; Listen port number
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "listen-port"

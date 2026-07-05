@@ -1,0 +1,5 @@
+priority: 455
+type: txt
+help: Description of this interface
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "description"

@@ -1,0 +1,19 @@
+config BR2_PACKAGE_AMNEZIAWG_TOOLS
+	bool "amneziawg tools"
+	# kernel module requires 3.10+, userspace makes no sense without it
+	depends on BR2_TOOLCHAIN_HEADERS_AT_LEAST_3_10
+	select BR2_PACKAGE_BASH
+	help
+	  Amnezia WireGuard is a modified version of WireGuard that adds
+	  additional obfuscation features to bypass censorship and VPN blocking.
+	  It is an extremely simple yet fast and modern VPN that utilizes
+	  state-of-the-art cryptography. It aims to be faster, simpler, leaner,
+	  and more useful than IPSec, while avoiding the massive headache.
+
+	  This package provides the userspace tooling to configure
+	  Amnezia WireGuard tunnels (awg and awg-quick).
+
+	  https://amnezia.org
+
+comment "amneziawg-tools needs a toolchain w/ headers >= 3.10"
+	depends on !BR2_TOOLCHAIN_HEADERS_AT_LEAST_3_10

@@ -1,0 +1,5 @@
+priority: 920
+type: txt
+help: Remote endpoint
+
+end:  /opt/amneziawg/peer.sh "$COMMIT_ACTION" "$VAR(../../@)" "$VAR(../@)" "endpoint"

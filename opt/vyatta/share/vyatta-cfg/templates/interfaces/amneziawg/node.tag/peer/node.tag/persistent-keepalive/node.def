@@ -1,0 +1,6 @@
+priority: 930
+type: u32
+help: Persistent keepalive interval
+val_help: u32:0-65535; Keepalive interval in seconds (0 to disable)
+
+end:  /opt/amneziawg/peer.sh "$COMMIT_ACTION" "$VAR(../../@)" "$VAR(../@)" "persistent-keepalive"

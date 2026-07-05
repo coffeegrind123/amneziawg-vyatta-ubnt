@@ -1,0 +1,11 @@
+priority: 460
+type: txt
+help: Private key
+val_help: txt; 44-character (32-bytes) base64 key
+val_help: txt; File in /config/auth
+
+syntax:expression: exec "/opt/amneziawg/is_valid_key.sh $VAR(@)"
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "private-key"
+
+commit:expression: exec "/opt/amneziawg/is_valid_key.sh $VAR(@)"; "Error: Private key $VAR(@) not found"

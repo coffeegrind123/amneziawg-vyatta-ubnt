@@ -1,0 +1,37 @@
+################################################################################
+#
+# amneziawg-tools
+#
+################################################################################
+
+AMNEZIAWG_TOOLS_VERSION = PACKAGE_VERSION
+AMNEZIAWG_TOOLS_SITE = $(TOPDIR)/package/amneziawg-tools
+AMNEZIAWG_TOOLS_SITE_METHOD = file
+AMNEZIAWG_TOOLS_SOURCE = amneziawg-tools-$(AMNEZIAWG_TOOLS_VERSION).tar
+AMNEZIAWG_TOOLS_LICENSE = GPL-2.0
+AMNEZIAWG_TOOLS_LICENSE_FILES = COPYING
+
+ifeq ($(BR2_INIT_SYSTEMD),y)
+AMNEZIAWG_TOOLS_MAKE_OPTS += WITH_SYSTEMDUNITS=yes
+AMNEZIAWG_TOOLS_DEPENDENCIES += host-pkgconf
+else
+AMNEZIAWG_TOOLS_MAKE_OPTS += WITH_SYSTEMDUNITS=no
+endif
+
+ifeq ($(BR2_PACKAGE_BASH),y)
+AMNEZIAWG_TOOLS_MAKE_OPTS += WITH_BASHCOMPLETION=yes WITH_AWGQUICK=yes
+else
+AMNEZIAWG_TOOLS_MAKE_OPTS += WITH_BASHCOMPLETION=no WITH_AWGQUICK=no
+endif
+
+define AMNEZIAWG_TOOLS_BUILD_CMDS
+	$(TARGET_MAKE_ENV) $(TARGET_CONFIGURE_OPTS) $(MAKE) $(AMNEZIAWG_TOOLS_MAKE_OPTS) \
+		-C $(@D)/src
+endef
+
+define AMNEZIAWG_TOOLS_INSTALL_TARGET_CMDS
+	$(TARGET_MAKE_ENV) $(TARGET_CONFIGURE_OPTS) $(MAKE) $(AMNEZIAWG_TOOLS_MAKE_OPTS) \
+		-C $(@D)/src install DESTDIR=$(TARGET_DIR)
+endef
+
+$(eval $(generic-package))

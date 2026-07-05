@@ -1,0 +1,6 @@
+priority: 560
+type: u32
+help: Send Init Junk Packet Size (s1) - Size of initial junk packet to send
+val_help: u32:0-65535; Size of initial junk packet
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "s1"

@@ -1,0 +1,6 @@
+priority: 640
+type: u32
+help: Init Junk Packet Size I3 - Size of third init junk packet
+val_help: u32:0-65535; Size of third init junk packet
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "i3"

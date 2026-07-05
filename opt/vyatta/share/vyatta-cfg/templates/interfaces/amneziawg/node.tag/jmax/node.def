@@ -1,0 +1,6 @@
+priority: 550
+type: u32
+help: Junk Packet Maximum Size (jmax) - Maximum size of junk packets
+val_help: u32:0-65535; Maximum size of junk packets
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "jmax"

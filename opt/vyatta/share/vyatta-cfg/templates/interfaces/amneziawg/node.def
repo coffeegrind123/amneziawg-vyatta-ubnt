@@ -1,0 +1,14 @@
+tag:
+priority: 459
+type: txt
+help: Amnezia WireGuard interface name
+val_help: <awgN>; Amnezia WireGuard interface name
+syntax:expression: pattern $VAR(@) "^awg[0-9]+$" \
+                   ; "awg must be (awg0-awg999)"
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(@)"
+
+commit:expression: $VAR(./private-key) != "" ;
+	"Private key must be specified for $VAR(@)"
+
+commit:expression: exec "${vyatta_sbindir}/vyatta-check-allowed-ips.pl --intf $VAR(@)"

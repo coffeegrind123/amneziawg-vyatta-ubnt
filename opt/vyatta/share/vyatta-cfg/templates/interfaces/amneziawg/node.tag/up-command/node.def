@@ -1,0 +1,5 @@
+priority: 510
+type: txt
+help: Command to run when interface is brought up
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "up-command"

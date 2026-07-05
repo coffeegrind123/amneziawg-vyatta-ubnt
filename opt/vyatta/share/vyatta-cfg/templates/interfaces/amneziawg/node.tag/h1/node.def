@@ -1,0 +1,6 @@
+priority: 580
+type: u32
+help: Header Junk Packet Size 1 (h1) - Size of first header junk packet
+val_help: u32:0-65535; Size of first header junk packet
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "h1"

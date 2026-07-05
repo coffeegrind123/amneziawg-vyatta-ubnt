@@ -20,8 +20,10 @@ GetOptions("intf=s"           => \$intf,
 ) or usage();
 
 usage() unless $intf;
-if ($intf =~ /^(wg\d{0,3})$/) {
-    $intf = $1;
+if ($intf =~ /^(wg|awg)(\d{0,3})$/) {
+    my $type = $1;
+    my $num = $2;
+    $intf = "${type}${num}";
 } else {
     die "Invalid interface";
 }
@@ -35,7 +37,8 @@ sub check_interface {
     my ($intf) = @_;
     my @allowed_ips;
     my $config = new Vyatta::Config;
-    my $path = "interfaces wireguard ${intf}";
+    my $intf_type = ($intf =~ /^awg/) ? "amneziawg" : "wireguard";
+    my $path = "interfaces ${intf_type} ${intf}";
     die "${0} error: invalid interface\n" unless $config->exists($path);
 
     # Get allowed-ips for all peers on the interface
@@ -45,7 +48,7 @@ sub check_interface {
 
     # Get array containing any duplicate members of @allowed_ips
     my @duplicates = duplicates(@allowed_ips);
-    
+
     # If there are duplicates raise an error message for each and die.
     # IPv6 addresses are converted to their short format to comply with RFC5952
     if (@duplicates) {
@@ -56,22 +59,23 @@ sub check_interface {
         die $err_str;
     }
 
-    return; 
+    return;
 }
 
 # Validate that peer doesn't contain duplicate allowed-ips
 sub check_peer {
     my ($intf, $peer) = @_;
     my $config = new Vyatta::Config;
-    my $path = "interfaces wireguard ${intf} peer ${peer}";
+    my $intf_type = ($intf =~ /^awg/) ? "amneziawg" : "wireguard";
+    my $path = "interfaces ${intf_type} ${intf} peer ${peer}";
     die "${0} error: invalid interface and/or peer\n" unless $config->exists($path);
-    
+
     # Get allowed-ips for the peer
     my @allowed_ips = peer_allowed_ips($path);
-    
+
     # Get array containing any duplicate members of @allowed_ips
     my @duplicates = duplicates(@allowed_ips);
-    
+
     # If there are duplicates raise an error message for each and die.
     # IPv6 addresses are converted to their short format to comply with RFC5952
     if (@duplicates) {
@@ -81,8 +85,8 @@ sub check_peer {
         }
         die $err_str;
     }
-    
-    $config->setLevel("interfaces wireguard ${intf}");
+
+    $config->setLevel("interfaces ${intf_type} ${intf}");
     if ($config->returnValue("route-allowed-ips") eq "true") {
         my $conflict = check_routes(@allowed_ips);
         if ($conflict) {

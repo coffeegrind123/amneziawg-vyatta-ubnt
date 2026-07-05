@@ -1,0 +1,5 @@
+priority: 900
+type: txt
+help: Description of this peer
+
+end: /opt/amneziawg/peer.sh "$COMMIT_ACTION" "$VAR(../@)" "$VAR(@)" "description"

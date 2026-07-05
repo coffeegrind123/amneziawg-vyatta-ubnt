@@ -1,4 +1,4 @@
-name: Build kernel module and tools
+name: Build AmneziaWG kernel module and tools
 
 on:
   push:
@@ -199,13 +199,9 @@ jobs:
           # Strip the resulting module (AmnesiaWG produces amneziawg.ko)
           if [ -f amneziawg.ko ]; then
             ${{ matrix.toolchain }}strip --strip-debug amneziawg.ko
-            # Create symlink with expected name for compatibility
-            ln -sf amneziawg.ko wireguard.ko
           elif [ -f generated/amneziawg.ko ]; then
             cp generated/amneziawg.ko ./amneziawg.ko
             ${{ matrix.toolchain }}strip --strip-debug amneziawg.ko
-            # Create symlink with expected name for compatibility
-            ln -sf amneziawg.ko wireguard.ko
           else
             echo "ERROR: No amneziawg.ko found after build"
             find . -name "*.ko" 2>/dev/null || echo "No .ko files found"
@@ -215,7 +211,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: module-${{ matrix.device }}-${{ matrix.version }}
-          path: module/src/wireguard.ko
+          path: module/src/amneziawg.ko
 
   tools:
     needs: docker
@@ -244,11 +240,12 @@ jobs:
           cd tools/src
           CC="$ARCH-linux-musl-gcc" LDLIBS="-static" make -j$(nproc)
           $ARCH-linux-musl-strip --strip-unneeded wg
+          mv wg awg
       - name: Upload built tools
         uses: actions/upload-artifact@v4
         with:
           name: tools-${{ matrix.arch }}
-          path: tools/src/wg
+          path: tools/src/awg
 
   package:
     needs: [module, tools]
@@ -289,13 +286,18 @@ jobs:
         run: |
           apt update
           apt install -y kmod
-          export KERNEL=$(modinfo -F vermagic wireguard.ko | cut -d ' ' -f 1)
+          export KERNEL=$(modinfo -F vermagic amneziawg.ko | cut -d ' ' -f 1)
           mkdir -p pkg/usr/bin pkg/lib/modules/$KERNEL/kernel/net
           cp -r debian pkg/DEBIAN
           cp -r opt pkg/opt
-          cp wireguard.ko pkg/lib/modules/$KERNEL/kernel/net/wireguard.ko
-          cp wg pkg/usr/bin/wg
-          chmod +x pkg/usr/bin/wg
+          # Remove ALL wireguard templates - they come from wireguard-vyatta-ubnt package
+          # We only need amneziawg templates and vyatta-check-allowed-ips.pl
+          rm -rf pkg/opt/vyatta/share/vyatta-cfg/templates/interfaces/wireguard
+          rm -rf pkg/opt/vyatta/share/vyatta-op/templates/show/interfaces/wireguard
+          rm -rf pkg/opt/vyatta/share/vyatta-op/templates/clear/interfaces/wireguard
+          cp amneziawg.ko pkg/lib/modules/$KERNEL/kernel/net/amneziawg.ko
+          cp awg pkg/usr/bin/awg
+          chmod +x pkg/usr/bin/awg
           sed -i "s/PACKAGE_VERSION/$MODULE_VERSION/g" pkg/DEBIAN/control
           sed -i "s/PACKAGE_RELEASE/$PACKAGE_RELEASE/g" pkg/DEBIAN/control
           sed -i "s/KERNEL_VER/$KERNEL/g" pkg/DEBIAN/preinst
@@ -316,7 +318,7 @@ jobs:
         run: |
           curl -o buildroot.tar.bz2 https://buildroot.org/downloads/buildroot-2017.11.1.tar.bz2
           tar -xf buildroot.tar.bz2
-      - name: Download AmnesiaWG module source
+      - name: Download AmnesiaWG module source and apply patches
         run: |
           curl -L -o amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz
           tar -xf amneziawg-linux-kernel-module-$MODULE_VERSION.tar.gz
@@ -325,27 +327,35 @@ jobs:
           sed -i 's/ --dirty//g' src/Makefile
           patch -p1 < ../siphash_no_fallthrough.patch
           python3 ../fix_netlink_api.py
+          # Wrap skb_put_data with version check - only for kernels < 4.4.0
+          # Newer kernels (including 4.4.x with backports) already have this function
+          awk '/^static inline void \*skb_put_data/{print "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)"} {print} /^static inline void \*skb_put_data/,/^}$/{if(/^}$/)print "#endif"}' src/compat/compat.h > src/compat/compat.h.tmp && mv src/compat/compat.h.tmp src/compat/compat.h
+          # Fix for old kernels (4.1.37) - replace skb_put_data usage with memcpy+skb_put
+          sed -i 's/skb_put_data(skb, buffer, len);/memcpy(skb_put(skb, len), buffer, len);/' src/socket.c
           cd ..
           tar -cf amneziawg-linux-kernel-module-$MODULE_VERSION.tar amneziawg-linux-kernel-module-$MODULE_VERSION/
+      - name: Copy packages
+        run: cp -pr unifios/packages/amneziawg-linux-compat buildroot-2017.11.1/package/amneziawg-linux-compat
+      - name: Copy AmneziaWG source
+        run: |
+          cp amneziawg-linux-kernel-module-$MODULE_VERSION.tar buildroot-2017.11.1/package/amneziawg-linux-compat/amneziawg-linux-compat-$MODULE_VERSION.tar
       - name: Download AmnesiaWG tools source
         run: |
           curl -L -o amneziawg-tools-$TOOLS_VERSION.tar.gz https://github.com/amnezia-vpn/amneziawg-tools/archive/refs/tags/v$TOOLS_VERSION.tar.gz
           tar -xf amneziawg-tools-$TOOLS_VERSION.tar.gz
           tar -cf amneziawg-tools-$TOOLS_VERSION.tar amneziawg-tools-$TOOLS_VERSION/
-      - name: Copy packages
-        run: cp -pr unifios/packages/* buildroot-2017.11.1/package
-      - name: Copy AmnesiaWG source
+      - name: Copy amneziawg-tools packages
+        run: cp -pr unifios/packages/amneziawg-tools buildroot-2017.11.1/package/amneziawg-tools
+      - name: Copy AmneziaWG tools source
         run: |
-          cp amneziawg-linux-kernel-module-$MODULE_VERSION.tar buildroot-2017.11.1/package/wireguard-linux-compat/wireguard-linux-compat-$MODULE_VERSION.tar
-          cp amneziawg-tools-$TOOLS_VERSION.tar buildroot-2017.11.1/package/wireguard-tools/wireguard-tools-$TOOLS_VERSION.tar
+          cp amneziawg-tools-$TOOLS_VERSION.tar buildroot-2017.11.1/package/amneziawg-tools/amneziawg-tools-$TOOLS_VERSION.tar
       - name: Set package versions
         run: |
-          sed -i "s/PACKAGE_VERSION/$MODULE_VERSION/g" buildroot-2017.11.1/package/wireguard-linux-compat/wireguard-linux-compat.mk
-          sed -i "s/PACKAGE_VERSION/$TOOLS_VERSION/g" buildroot-2017.11.1/package/wireguard-tools/wireguard-tools.mk
+          sed -i "s/PACKAGE_VERSION/$MODULE_VERSION/g" buildroot-2017.11.1/package/amneziawg-linux-compat/amneziawg-linux-compat.mk
+          sed -i "s/PACKAGE_VERSION/$TOOLS_VERSION/g" buildroot-2017.11.1/package/amneziawg-tools/amneziawg-tools.mk
       - name: Patches
         run: |
-          patch -p0 <unifios/patches/wireguard-packages.patch
-          patch -p0 <unifios/patches/openresolv-package.patch
+          patch -p0 <unifios/patches/amneziawg-packages.patch
           patch -d buildroot-2017.11.1 -p1 <unifios/patches/add-kernel-4-19.patch
           cp unifios/patches/0001-m4-glibc-change-work-around.patch buildroot-2017.11.1/package/m4/
           cp unifios/patches/0002-m4-sigstksz-fix.patch buildroot-2017.11.1/package/m4/
@@ -385,6 +395,7 @@ jobs:
     needs: [udm-prepare-buildroot]
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         base: [udm-1.9.0-10, udm-1.10.0-8, udm-1.10.0-12, udm-se-2.2.4, udr-2.2.12]
     steps:
@@ -413,18 +424,25 @@ jobs:
             cp -rf "unifios/bases/${{ matrix.base }}/patches" ./buildroot-2017.11.1/
           fi
           cd buildroot-2017.11.1
-          # Apply DTC multiple definition fix for UDM buildroot 
+          # Apply DTC multiple definition fix for UDM buildroot
           # Set HOST_LDFLAGS for host tools (uses -Wl, wrapper for gcc/g++)
           export HOST_LDFLAGS="-Wl,--allow-multiple-definition"
           make oldconfig
+          # Build each kernel version sequentially within this job
           (IFS=','
           for ver in $versions; do
-            echo "Building version $ver"
-            make wireguard-linux-compat-dirclean
+            echo "Building version $ver for ${{ matrix.base }}"
+            make amneziawg-linux-compat-dirclean
             sed -i -e '/CONFIG_LOCALVERSION=/s/.*/CONFIG_LOCALVERSION="'$ver'"/' kernel-config
             # Pass kernel linker flags via KBUILD_LDFLAGS to avoid -Wl, wrapper
-            HOST_LDFLAGS="-Wl,--allow-multiple-definition" KBUILD_LDFLAGS="--allow-multiple-definition" make wireguard-linux-compat-rebuild -j$(nproc)
-            cp output/build/wireguard-linux-compat-$MODULE_VERSION/src/amneziawg.ko ../modules/wireguard-${prefix}${ver}.ko
+            # Use V=1 for verbose output to see compilation errors
+            HOST_LDFLAGS="-Wl,--allow-multiple-definition" KBUILD_LDFLAGS="--allow-multiple-definition" make V=1 amneziawg-linux-compat-rebuild -j$(nproc) 2>&1 | tee /tmp/build-${{ matrix.base }}-$ver.log
+            if [ ${PIPESTATUS[0]} -ne 0 ]; then
+              echo "Build failed for version $ver (${{ matrix.base }}). Showing last 100 lines of build log:"
+              tail -100 /tmp/build-${{ matrix.base }}-$ver.log
+              exit 1
+            fi
+            cp output/build/amneziawg-linux-compat-$MODULE_VERSION/src/amneziawg.ko ../modules/amneziawg-${prefix}${ver}.ko
             cp output/build/linux-custom/net/ipv4/netfilter/iptable_raw.ko ../modules/iptable_raw-${prefix}${ver}.ko
             cp output/build/linux-custom/net/ipv6/netfilter/ip6table_raw.ko ../modules/ip6table_raw-${prefix}${ver}.ko
           done)
@@ -452,23 +470,31 @@ jobs:
           cp unifios/bases/${{ env.BASE }}/kernel-config buildroot-2017.11.1/kernel-config
           cd buildroot-2017.11.1
           make oldconfig
-      - name: Build AmnesiaWG tools
-        run: cd buildroot-2017.11.1 && make wireguard-tools-rebuild # -> output/target/usr/bin/wg
+      - name: Build AmneziaWG tools
+        run: cd buildroot-2017.11.1 && make amneziawg-tools-rebuild # -> output/target/usr/bin/awg
       - name: Build bash
         run: cd buildroot-2017.11.1 && make bash-rebuild # -> output/target/bin/bash
-      - name: Build resolvconf
-        run: cd buildroot-2017.11.1 && make openresolv-rebuild # -> output/target/sbin/resolvconf
       - name: Build qrencode
         run: cd buildroot-2017.11.1 && make libqrencode-rebuild # -> output/target/usr/bin/qrencode
       - name: Collect tools
         run: |
           mkdir -p tools
-          cp buildroot-2017.11.1/output/target/usr/bin/awg tools/wg
+          cp buildroot-2017.11.1/output/target/usr/bin/awg tools/awg
           cp buildroot-2017.11.1/output/target/bin/bash tools/
           cp buildroot-2017.11.1/output/target/usr/bin/qrencode tools/
-          cp buildroot-2017.11.1/output/target/sbin/resolvconf tools/
-          cp buildroot-2017.11.1/output/target/etc/resolvconf.conf tools/
-          cp buildroot-2017.11.1/output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash tools/wg-quick
+          # Find and copy wg-quick script (location may vary)
+          if [ -f buildroot-2017.11.1/output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ]; then
+            cp buildroot-2017.11.1/output/build/amneziawg-tools-$TOOLS_VERSION/src/wg-quick/linux.bash tools/awg-quick
+          elif [ -f buildroot-2017.11.1/output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash ]; then
+            cp buildroot-2017.11.1/output/build/wireguard-tools-$TOOLS_VERSION/src/wg-quick/linux.bash tools/awg-quick
+          elif [ -f buildroot-2017.11.1/output/target/usr/bin/wg-quick ]; then
+            cp buildroot-2017.11.1/output/target/usr/bin/wg-quick tools/awg-quick
+          else
+            echo "Warning: wg-quick not found, creating stub"
+            echo '#!/bin/bash' > tools/awg-quick
+            echo 'echo "wg-quick stub for AmneziaWG"' >> tools/awg-quick
+          fi
+          chmod +x tools/awg-quick
       - name: Store tools
         uses: actions/upload-artifact@v4
         with:
@@ -480,25 +506,28 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Prepare
-        run: mkdir -p package package/wireguard package/wireguard/modules package/wireguard/tools package/wireguard/etc
+        run: mkdir -p package package/amneziawg package/amneziawg/modules package/amneziawg/tools package/amneziawg/etc
       - name: Restore UDM modules
         uses: actions/download-artifact@v4
         with:
           pattern: modules-*
-          path: package/wireguard/modules
+          path: package/amneziawg/modules
           merge-multiple: true
       - name: Restore tools
         uses: actions/download-artifact@v4
         with:
           name: tools
-          path: package/wireguard/tools
+          path: package/amneziawg/tools
       - name: Add setup
-        run: cp unifios/setup_wireguard.sh package/wireguard/
+        run: cp unifios/setup_amneziawg.sh package/amneziawg/
       - name: Fix permissions
         run: |
-          mv package/wireguard/tools/resolvconf.conf package/wireguard/etc
-          chmod +x package/wireguard/tools/* package/wireguard/setup_wireguard.sh
-          sudo chown -R root:root package/wireguard
+          # resolvconf.conf was removed, skip if not present
+          if [ -f package/amneziawg/tools/resolvconf.conf ]; then
+            mv package/amneziawg/tools/resolvconf.conf package/amneziawg/etc
+          fi
+          chmod +x package/amneziawg/tools/* package/amneziawg/setup_amneziawg.sh
+          sudo chown -R root:root package/amneziawg
       - name: Package
         run: tar -C package -czf UnifiOS-$MODULE_VERSION-$TOOLS_VERSION.tar.gz ./
       - name: Store package

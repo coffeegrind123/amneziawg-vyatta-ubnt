@@ -1,0 +1,8 @@
+priority: 940
+type: txt
+help: Preshared key
+
+val_help: txt; 44-character (32-bytes) base64 key
+val_help: txt; File in /config/auth
+
+end: /opt/amneziawg/peer.sh "$COMMIT_ACTION" "$VAR(../../@)" "$VAR(../@)" "preshared-key"

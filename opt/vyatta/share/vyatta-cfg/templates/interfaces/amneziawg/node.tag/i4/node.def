@@ -1,0 +1,6 @@
+priority: 650
+type: u32
+help: Init Junk Packet Size I4 - Size of fourth init junk packet
+val_help: u32:0-65535; Size of fourth init junk packet
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "i4"

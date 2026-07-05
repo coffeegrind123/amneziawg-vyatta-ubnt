@@ -1,10 +1,16 @@
 #!/bin/sh
 if [ "$1" = "remove" -o "$1" = "abort-install" -o "$1" = "disappear" ] \
-    && [ -n "$(dpkg-divert --list wireguard)" ]; then
-  dpkg-divert --package wireguard  --rename --remove \
+    && [ -n "$(dpkg-divert --list amneziawg)" ]; then
+  dpkg-divert --package amneziawg  --rename --remove \
               /opt/vyatta/share/perl5/Vyatta/Interface.pm
-  dpkg-divert --package wireguard  --rename --remove \
+  dpkg-divert --package amneziawg  --rename --remove \
               /opt/vyatta/share/vyatta-cfg/templates/firewall/options/mss-clamp/interface-type/node.def
-  dpkg-divert --package wireguard  --rename --remove \
+  dpkg-divert --package amneziawg  --rename --remove \
               /opt/vyatta/share/vyatta-cfg/templates/firewall/options/mss-clamp6/interface-type/node.def
+  # Restore original vyatta-check-allowed-ips.pl
+  if [ -f /opt/vyatta/sbin/vyatta-check-allowed-ips.pl.orig ]; then
+      mv /opt/vyatta/sbin/vyatta-check-allowed-ips.pl.orig /opt/vyatta/sbin/vyatta-check-allowed-ips.pl
+  fi
+  dpkg-divert --package amneziawg  --rename --remove \
+              /opt/vyatta/sbin/vyatta-check-allowed-ips.pl
 fi
