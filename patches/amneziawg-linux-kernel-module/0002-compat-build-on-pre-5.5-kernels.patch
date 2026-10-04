@@ -11,6 +11,10 @@ from 5.5, plus strscpy (4.3+) and the 4-argument ip6_dst_lookup_flow
   keystream is bit-identical to the library's.
 - Provide strscpy before 4.3.
 - Use the ipv6_stub lookup before 5.5, as 1.x did.
+- Keep compat/udp_tunnel's own definitions out of the struct sock *
+  wrapper macros (kernels without net/udp_tunnel.h).
+- Keep compat/udp_tunnel's own definitions out of the struct sock *
+  wrapper macros (kernels without net/udp_tunnel.h).
 
 ---
 diff --git a/src/compat/Kbuild.include b/src/compat/Kbuild.include
@@ -149,6 +153,22 @@ index 3b8606d..1e543bf 100644
 +#endif
 +
  #endif /* _WG_COMPAT_H */
+diff --git a/src/compat/udp_tunnel/udp_tunnel.c b/src/compat/udp_tunnel/udp_tunnel.c
+index 630268a..7e1b7a6 100644
+--- a/src/compat/udp_tunnel/udp_tunnel.c
++++ b/src/compat/udp_tunnel/udp_tunnel.c
+@@ -9,6 +9,11 @@
+ #include <net/udp.h>
+ #include <net/udp_tunnel.h>
+ 
++/* compat.h maps these to struct sock * callers for the rest of the module;
++ * here they must stay the real struct socket * definitions. */
++#undef setup_udp_tunnel_sock
++#undef udp_tunnel_sock_release
++
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 12, 0)
+ #define __sk_user_data(sk) ((*((void __rcu **)&(sk)->sk_user_data)))
+ #define rcu_dereference_sk_user_data(sk) rcu_dereference(__sk_user_data((sk)))
 diff --git a/src/socket.c b/src/socket.c
 index 9036e4d..d86980d 100644
 --- a/src/socket.c
