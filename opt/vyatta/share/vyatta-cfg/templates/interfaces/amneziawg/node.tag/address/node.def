@@ -5,4 +5,10 @@ val_help: ipv4net; IPv4 address and prefix length
 val_help: ipv6net; IPv6 address and prefix length
 help: IP address
 
-end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "address"
+syntax:expression: exec "/opt/vyatta/sbin/valid_address $VAR(@)"
+
+commit:expression: exec "sudo /opt/vyatta/sbin/vyatta-interfaces.pl --valid-addr-commit $VAR(@@) --dev $VAR(../@)"
+
+create: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "address" "$VAR(@)"
+
+delete: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "address" "$VAR(@)"
