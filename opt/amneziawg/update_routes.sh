@@ -21,6 +21,7 @@ alias node_values='$VYATTA_API returnValues $VYATTA_API_SLUG'
 DEV="dev $INTERFACE"
 # Create variable for ip route shorthand
 ROUTE_SLUG="$DEV proto boot"
+ROUTE_SLUG_KERNEL="$DEV proto kernel"
 # Create array of all routes for interface
 readarray -t ROUTES < <(ip -4 route show $ROUTE_SLUG; ip -6 route show $ROUTE_SLUG)
 # Create array of all allowed-ips for interface
@@ -70,4 +71,11 @@ if [ "${ROUTE_ALLOWED_IPS:-x}" == "true" ]; then
             fi
         done
     fi
+fi
+
+# EdgeOS kernels add a bogus "0.0.0.0/24 proto kernel" route to ARPHRD_NONE
+# links when they come up; stock WireGuard gets it too
+# (WireGuard/wireguard-vyatta-ubnt#145). It is never a real destination.
+if [ -n "$(ip -4 route show 0.0.0.0/24 $ROUTE_SLUG_KERNEL)" ]; then
+    sudo ip route del 0.0.0.0/24 $ROUTE_SLUG_KERNEL
 fi
