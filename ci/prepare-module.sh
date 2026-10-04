@@ -26,6 +26,14 @@ tar -xf "$tarball" -C "$DEST" --strip-components=1
 cd "$DEST"
 sed -i 's/ --dirty//g' src/Makefile
 
+# Upstream hardcodes 1.0.0 here, which overrides version.h; this is what
+# modinfo and the load banner report
+if ! grep -q '^WIREGUARD_VERSION = ' src/Makefile; then
+    echo "ERROR: WIREGUARD_VERSION not found in src/Makefile" >&2
+    exit 1
+fi
+sed -i "s/^WIREGUARD_VERSION = .*/WIREGUARD_VERSION = $VERSION/" src/Makefile
+
 shopt -s nullglob
 patches=("$PATCH_DIR"/*.patch)
 if [ ${#patches[@]} -eq 0 ]; then
