@@ -17,4 +17,4 @@ Description: Amnezia WireGuard - fast, modern, secure kernel VPN tunnel with obf
  .
  This package provides the kernel module and userspace tools for AmneziaWG.
  Unlike standard WireGuard, AmneziaWG includes additional parameters (Jc, Jmin,
- Jmax, S1, S2, H1-H4) for traffic obfuscation.
+ Jmax, S1-S4, H1-H4, I1-I5, header protection) for traffic obfuscation.
