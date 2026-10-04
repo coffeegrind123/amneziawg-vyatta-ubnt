@@ -165,16 +165,13 @@ jobs:
           TAG="${{ steps.context.outputs.tag }}"
           echo "Creating release tag: $TAG"
           
-          # Check if tag already exists
-          if git tag -l | grep -q "^$TAG$"; then
-            echo "Tag $TAG already exists, deleting it first"
-            git tag -d $TAG || true
-            git push --delete origin $TAG || true
+          # The checkout has no tags, so ask the remote. Re-releasing the same
+          # versions (a new PACKAGE_RELEASE) moves the tag to this commit.
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "Tag $TAG already exists, moving it to ${{ github.sha }}"
           fi
-          
-          # Create and push new tag
-          git tag $TAG
-          git push origin $TAG
+          git tag -f $TAG
+          git push -f origin "refs/tags/$TAG"
           
           echo "✅ Created and pushed tag: $TAG"
         env:
