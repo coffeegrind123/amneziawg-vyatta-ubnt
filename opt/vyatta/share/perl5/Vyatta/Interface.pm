@@ -83,6 +83,7 @@ my %net_prefix = (
     '^switch[\d]+$'   => { path => 'switch', vif => 'vif' },
     '^l2tpeth[\d]+$'  => { path => 'l2tpv3' },
     '^wg[\d]+$'    => { path => 'wireguard' },
+    '^awg[\d]+$'   => { path => 'amneziawg' },
 );
 
 # get list of interface types (only used in usage function)
