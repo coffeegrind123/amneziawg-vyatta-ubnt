@@ -48,15 +48,8 @@ find $(find arch -name include -type d -print) -type f | cpio -pdm /headers
 
 # ---- AmneziaWG kernel module ----
 cd /build
-curl -fsSL -o m.tar.gz \
-  "https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v${MODULE_VERSION}.tar.gz"
-tar -xf m.tar.gz --one-top-level=module --strip-components=1
-cd module
-sed -i 's/ --dirty//g' src/Makefile
-patch -p1 < "$REPO/siphash_no_fallthrough.patch" \
-  || echo "siphash patch already applied upstream or not needed for module $MODULE_VERSION"
-python3 "$REPO/fix_netlink_api.py"
-cd src
+"$REPO/ci/prepare-module.sh" "$MODULE_VERSION" module "$REPO"
+cd module/src
 # Force legacy-kernel mode (UBNT devices run 4.x, not 5.6+ with built-in WireGuard)
 make V=1 ARCH=mips CROSS_COMPILE="$CROSS" KERNELDIR=/headers KERNELRELEASE=4.9.0 module
 "${CROSS}strip" --strip-debug amneziawg.ko

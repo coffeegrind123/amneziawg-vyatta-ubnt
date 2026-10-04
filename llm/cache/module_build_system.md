@@ -6,10 +6,19 @@ The AmnesiaWG module build system for VyattaOS/EdgeMax devices is implemented th
 ## Key Build Process Flow
 
 ### 1. Module Source Preparation (`module-prepare` job)
-- Downloads AmnesiaWG kernel module source from: `https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz`
-- Extracts to `module/` directory with `--one-top-level=module --strip-components=1`
-- Applies patches including `siphash_no_fallthrough.patch`
-- Modifies `src/Makefile` to remove `--dirty` flag
+- `ci/prepare-module.sh $MODULE_VERSION module` (also used by `ci/local-kmod.sh`)
+- Downloads `https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/v$MODULE_VERSION.tar.gz`
+- Removes the `--dirty` flag from `src/Makefile`
+- Applies `patches/amneziawg-linux-kernel-module/*.patch` in order with
+  `--fuzz=0`; any patch that does not apply fails the job
+  - `0001-siphash-drop-fallthrough-pseudo-keyword.patch`: old compilers/kernels
+    lack the `fallthrough` keyword
+  - `0002-compat-build-on-pre-5.5-kernels.patch`: 3.x header protection needs
+    the kernel ChaCha library (5.5+); on older kernels it is backed by the
+    bundled zinc ChaCha20 (bit-identical keystream). Also adds `strscpy`
+    (< 4.3) and routes `ip6_dst_lookup_flow` through `ipv6_stub` (< 5.5)
+- `fix_netlink_api.py` was removed: module 3.x guards multicast groups for
+  < 3.13 itself and no longer calls `get_random_u8()`
 
 ### 2. Headers Preparation (`headers` job)
 - Downloads kernel sources for specific UBNT devices from URLs in `ci/ubnt-source.json`
@@ -63,8 +72,9 @@ module/
 - Version variants: v1 and v2 firmware
 
 ## Current Module Version
-- MODULE_VERSION: "1.0.20241112"  
-- TOOLS_VERSION: "1.0.20250706"
+- MODULE_VERSION: "3.1.20260906"
+- TOOLS_VERSION: "3.1.20260812"
+- Build matrix: e300 (ER-4/6P/12), EdgeOS v1 and v2
 
 ## UBNT EdgeRouter Device Kernel Versions
 
@@ -162,9 +172,7 @@ To fix the missing Makefile issue, you need to:
 
 2. **Apply Required Patches**:
    ```bash
-   cd module
-   sed -i 's/ --dirty//g' src/Makefile
-   patch -p1 < ../siphash_no_fallthrough.patch
+   ci/prepare-module.sh 3.1.20260906 module
    ```
 
 3. **Prepare Kernel Build Directory** (most critical step):
@@ -215,8 +223,7 @@ The `modules/` directory in this repo is empty and serves as an output directory
 - `.github/workflows/release.yml`
 
 **Referenced Files from Root Directory:**
-- `siphash_no_fallthrough.patch` - Applied to AmnesiaWG module during CI builds
-- `fix_netlink_api.py` - Used for kernel API compatibility fixes during CI builds
+- `patches/amneziawg-linux-kernel-module/` - Patch series applied by `ci/prepare-module.sh`
 - `apply_libfdt_fix.sh` - Used in Docker octeon image for DTC fixes
 
 **CI Directory Files (All Used):**

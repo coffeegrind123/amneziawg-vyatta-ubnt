@@ -1,0 +1,170 @@
+From: coffeegrind123 <bsutherland747@gmail.com>
+Subject: [PATCH] compat: build 3.x on pre-5.5 kernels (EdgeOS 3.10 / 4.9)
+
+AmneziaWG 3.x header protection uses the kernel ChaCha library
+(<crypto/chacha.h>, chacha_init, chacha20_crypt), which only exists
+from 5.5, plus strscpy (4.3+) and the 4-argument ip6_dst_lookup_flow
+(5.5+). EdgeOS kernels have none of them.
+
+- Back struct chacha_state / chacha_init / chacha20_crypt with the
+  bundled zinc ChaCha20 when the kernel lacks chacha20_crypt; the
+  keystream is bit-identical to the library's.
+- Provide strscpy before 4.3.
+- Use the ipv6_stub lookup before 5.5, as 1.x did.
+
+---
+diff --git a/src/compat/Kbuild.include b/src/compat/Kbuild.include
+index 4c12d29..7a42485 100644
+--- a/src/compat/Kbuild.include
++++ b/src/compat/Kbuild.include
+@@ -67,6 +67,14 @@ ifeq ($(wildcard $(srctree)/arch/arm64/include/asm/neon.h)$(CONFIG_ARM64),y)
+ ccflags-y += -I$(kbuild-dir)/compat/neon-arm/include
+ endif
+ 
++# No ChaCha library API before 5.5: header protection falls back to zinc.
++ifeq ($(shell grep -s -F "chacha20_crypt" "$(srctree)/include/crypto/chacha.h"),)
++ccflags-y += -DCOMPAT_ZINC_CHACHA_STATE
++ifeq ($(wildcard $(srctree)/include/crypto/chacha.h),)
++ccflags-y += -I$(kbuild-dir)/compat/chacha/include
++endif
++endif
++
+ ifeq ($(wildcard $(srctree)/include/net/dst_metadata.h),)
+ ccflags-y += -I$(kbuild-dir)/compat/dstmetadata/include
+ endif
+diff --git a/src/compat/chacha/include/crypto/chacha.h b/src/compat/chacha/include/crypto/chacha.h
+new file mode 100644
+index 0000000..95ad013
+--- /dev/null
++++ b/src/compat/chacha/include/crypto/chacha.h
+@@ -0,0 +1,13 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _COMPAT_CRYPTO_CHACHA_H
++#define _COMPAT_CRYPTO_CHACHA_H
++
++/* Kernels before 5.0 have no <crypto/chacha.h>. compat.h supplies the
++ * library API on top of zinc (COMPAT_ZINC_CHACHA_STATE); this header only
++ * provides the size constants the module takes from it.
++ */
++#define CHACHA_IV_SIZE		16
++#define CHACHA_KEY_SIZE		32
++#define CHACHA_BLOCK_SIZE	64
++
++#endif /* _COMPAT_CRYPTO_CHACHA_H */
+diff --git a/src/compat/compat.h b/src/compat/compat.h
+index 3b8606d..1e543bf 100644
+--- a/src/compat/compat.h
++++ b/src/compat/compat.h
+@@ -1407,7 +1407,7 @@ static inline char *nla_strdup(const struct nlattr *nla, gfp_t flags)
+ 	blake2s(out, in, key, outlen, inlen, keylen)
+ #endif
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0) && !IS_ENABLED(CONFIG_IPV6)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0) && !IS_ENABLED(CONFIG_IPV6)
+ #include <net/ipv6_stubs.h>
+ static inline struct dst_entry *ip6_dst_lookup_flow(struct net *net, const struct sock *sk, struct flowi6 *fl6,
+ 				      const struct in6_addr *final_dst) {
+@@ -1415,7 +1415,57 @@ static inline struct dst_entry *ip6_dst_lookup_flow(struct net *net, const struc
+ }
+ #endif
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 16, 0)
++#if defined(COMPAT_ZINC_CHACHA_STATE)
++/* Kernels before 5.5 have no ChaCha library (chacha_init/chacha20_crypt).
++ * Back the header-protection API with the bundled zinc ChaCha20 instead:
++ * struct chacha20_ctx has the same 16-word layout as the library state
++ * (constants, key, 32-bit block counter, 96-bit nonce) and zinc bumps
++ * counter word 12 once per block, partial final block included, exactly
++ * like chacha_crypt_generic(). The keystream is therefore bit-identical,
++ * which matters because peers on newer kernels must decrypt our headers.
++ */
++#include <linux/string.h>
++#include <zinc/chacha20.h>
++#ifndef CHACHA_KEY_WORDS
++#define CHACHA_KEY_WORDS	8
++#endif
++#ifndef CHACHA_STATE_WORDS
++#define CHACHA_STATE_WORDS	16
++#endif
++
++struct chacha_state {
++	u32 x[CHACHA_STATE_WORDS];
++};
++
++static inline void __compat_zinc_chacha_init(struct chacha_state *state,
++					     const u32 *key, const u8 *iv)
++{
++	state->x[0] = CHACHA20_CONSTANT_EXPA;
++	state->x[1] = CHACHA20_CONSTANT_ND_3;
++	state->x[2] = CHACHA20_CONSTANT_2_BY;
++	state->x[3] = CHACHA20_CONSTANT_TE_K;
++	memcpy(&state->x[4], key, CHACHA_KEY_WORDS * sizeof(u32));
++	state->x[12] = get_unaligned_le32(iv + 0);
++	state->x[13] = get_unaligned_le32(iv + 4);
++	state->x[14] = get_unaligned_le32(iv + 8);
++	state->x[15] = get_unaligned_le32(iv + 12);
++}
++#define chacha_init(state, key, iv) __compat_zinc_chacha_init((state), (key), (iv))
++
++static inline void __compat_zinc_chacha20_crypt(struct chacha_state *state,
++						u8 *dst, const u8 *src,
++						unsigned int bytes)
++{
++	simd_context_t simd_context;
++
++	BUILD_BUG_ON(sizeof(struct chacha_state) != sizeof(struct chacha20_ctx));
++	simd_get(&simd_context);
++	chacha20((struct chacha20_ctx *)state, dst, src, bytes, &simd_context);
++	simd_put(&simd_context);
++}
++#define chacha20_crypt(s, d, src, b) __compat_zinc_chacha20_crypt((s), (d), (src), (b))
++
++#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 16, 0)
+ #include <crypto/chacha.h>
+ #define CHACHA_KEY_WORDS	8
+ #ifndef CHACHA_STATE_WORDS
+@@ -1454,4 +1504,25 @@ static inline void __compat_chacha20_crypt(struct chacha_state *state,
+ #define WQ_PERCPU 0
+ #endif
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 3, 0)
++#include <linux/string.h>
++#include <linux/errno.h>
++static inline ssize_t __compat_strscpy(char *dest, const char *src, size_t count)
++{
++	size_t len;
++
++	if (count == 0)
++		return -E2BIG;
++	len = strnlen(src, count);
++	if (len >= count) {
++		memcpy(dest, src, count - 1);
++		dest[count - 1] = '\0';
++		return -E2BIG;
++	}
++	memcpy(dest, src, len + 1);
++	return len;
++}
++#define strscpy __compat_strscpy
++#endif
++
+ #endif /* _WG_COMPAT_H */
+diff --git a/src/socket.c b/src/socket.c
+index 9036e4d..d86980d 100644
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -137,7 +137,14 @@ static int send6(struct wg_device *wg, struct sk_buff *skb,
+ 			if (cache)
+ 				dst_cache_reset(cache);
+ 		}
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 5, 0)
++		/* Before 5.5, ip6_dst_lookup_flow() has no net argument; the
++		 * ipv6_stub path is the one compat.h knows how to map. */
++		dst = ipv6_stub->ipv6_dst_lookup_flow(sock_net(sock), sock, &fl,
++						      NULL);
++#else
+ 		dst = ip6_dst_lookup_flow(sock_net(sock), sock, &fl, NULL);
++#endif
+ 		if (IS_ERR(dst)) {
+ 			ret = PTR_ERR(dst);
+ 			net_dbg_ratelimited("%s: No route to %pISpfsc, error %d\n",
