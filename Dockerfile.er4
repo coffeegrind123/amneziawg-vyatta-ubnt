@@ -87,6 +87,7 @@ RUN set -eux; cd /work; \
     KERNEL="$(modinfo -F vermagic amneziawg.ko | cut -d ' ' -f 1)"; \
     mkdir -p "pkg/usr/bin" "pkg/lib/modules/${KERNEL}/kernel/net"; \
     cp -r /repo/debian pkg/DEBIAN; cp -r /repo/opt pkg/opt; \
+    chmod 0755 pkg/opt/amneziawg/*.sh pkg/opt/vyatta/sbin/vyatta-check-allowed-ips.pl; \
     rm -rf pkg/opt/vyatta/share/vyatta-cfg/templates/interfaces/wireguard \
            pkg/opt/vyatta/share/vyatta-op/templates/show/interfaces/wireguard \
            pkg/opt/vyatta/share/vyatta-op/templates/clear/interfaces/wireguard; \
