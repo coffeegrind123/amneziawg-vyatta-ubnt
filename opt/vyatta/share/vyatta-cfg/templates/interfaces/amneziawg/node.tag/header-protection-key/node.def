@@ -9,3 +9,6 @@ syntax:expression: exec "/opt/amneziawg/is_valid_key.sh $VAR(@)"
 end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "header-protection-key"
 
 commit:expression: exec "/opt/amneziawg/is_valid_key.sh $VAR(@)"; "Error: Header protection key $VAR(@) not found"
+
+# Vyatta skips the interface-level check when only this node changes
+commit:expression: exec "/opt/amneziawg/validate.sh interface $VAR(../@)"

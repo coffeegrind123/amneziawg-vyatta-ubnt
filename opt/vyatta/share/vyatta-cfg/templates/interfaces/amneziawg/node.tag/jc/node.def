@@ -5,3 +5,6 @@ val_help: u32:0-65535; Number of junk packets (0 to disable)
 syntax:expression: $VAR(@) >= 0 && $VAR(@) <= 65535; "Must be between 0-65535"
 
 end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "jc"
+
+# Vyatta skips the interface-level check when only this node changes
+commit:expression: exec "/opt/amneziawg/validate.sh interface $VAR(../@)"

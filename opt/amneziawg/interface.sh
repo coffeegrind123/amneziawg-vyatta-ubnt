@@ -248,6 +248,11 @@ function rebuild_interface {
     cfg_random-trailers
     cfg_disable-cookies
 
+    # Peers add routes, which needs the link up, as in the normal create path
+    if ! node_exists disable; then
+        sudo ip link set up dev $INTERFACE
+    fi
+
     eval "PEERS=($(node_list peer))"
     for peer in "${PEERS[@]}"; do
         /opt/amneziawg/peer.sh SET $INTERFACE "$peer"
@@ -260,7 +265,6 @@ function rebuild_interface {
     done
 
     if ! node_exists disable; then
-        sudo ip link set up dev $INTERFACE
         /opt/amneziawg/update_routes.sh "$INTERFACE"
         eval "$(node_value up-command) > /dev/null" || exit 1
     fi

@@ -6,3 +6,6 @@ val_help: <start>-<end>; Header value, a random value from the range
 syntax:expression: exec "/opt/amneziawg/validate.sh range '$VAR(@)' 4294967295"
 
 end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "h4"
+
+# Vyatta skips the interface-level check when only this node changes
+commit:expression: exec "/opt/amneziawg/validate.sh interface $VAR(../@)"

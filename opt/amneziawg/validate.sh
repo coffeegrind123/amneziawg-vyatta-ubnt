@@ -13,6 +13,8 @@ set -Eu -o pipefail
 HEADER_PROTECTION_MIN_PADDING=12    # HEADER_PROTECTION_NONCE_SIZE in the module
 U16_MAX=65535
 U32_MAX=4294967295
+# Unset when the commit comes from a script session
+VYATTA_API=${vyatta_sbindir:-/opt/vyatta/sbin}/my_cli_shell_api
 
 function fail {
     echo "$*"
@@ -50,12 +52,12 @@ function check_ispec {
 }
 
 function node_exists {
-    "${vyatta_sbindir}/my_cli_shell_api" exists interfaces amneziawg "$INTERFACE" "$@"
+    "$VYATTA_API" exists interfaces amneziawg "$INTERFACE" "$@"
 }
 
 function value_or {
     if node_exists "$1"; then
-        "${vyatta_sbindir}/my_cli_shell_api" returnValue interfaces amneziawg "$INTERFACE" "$1"
+        "$VYATTA_API" returnValue interfaces amneziawg "$INTERFACE" "$1"
     else
         echo "$2"
     fi
