@@ -1,0 +1,2 @@
+help: Show specified AmneziaWG interface fwmark
+run: sudo awg show "$4" fwmark

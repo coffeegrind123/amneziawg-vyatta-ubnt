@@ -12,3 +12,5 @@ commit:expression: $VAR(./private-key) != "" ;
 	"Private key must be specified for $VAR(@)"
 
 commit:expression: exec "${vyatta_sbindir}/vyatta-check-allowed-ips.pl --intf $VAR(@)"
+
+commit:expression: exec "/opt/amneziawg/validate.sh interface $VAR(@)"

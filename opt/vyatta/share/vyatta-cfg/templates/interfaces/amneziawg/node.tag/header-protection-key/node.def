@@ -1,0 +1,11 @@
+priority: 576
+type: txt
+help: Header protection key (requires s1-s4 of at least 12)
+val_help: txt; 44-character (32-bytes) base64 key
+val_help: txt; File in /config/auth
+
+syntax:expression: exec "/opt/amneziawg/is_valid_key.sh $VAR(@)"
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "header-protection-key"
+
+commit:expression: exec "/opt/amneziawg/is_valid_key.sh $VAR(@)"; "Error: Header protection key $VAR(@) not found"

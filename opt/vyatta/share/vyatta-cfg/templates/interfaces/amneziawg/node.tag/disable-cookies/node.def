@@ -1,0 +1,4 @@
+priority: 740
+help: Never answer with cookie replies under load
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "disable-cookies"

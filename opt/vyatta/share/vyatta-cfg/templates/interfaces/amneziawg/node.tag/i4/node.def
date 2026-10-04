@@ -1,6 +1,7 @@
 priority: 650
-type: u32
-help: Init Junk Packet Size I4 - Size of fourth init junk packet
-val_help: u32:0-65535; Size of fourth init junk packet
+type: txt
+help: Special junk packet I4 sent before each handshake
+val_help: txt; Tags: <b 0xHEX> bytes, <r N> random bytes, <rc N> random letters, <rd N> random digits, <c> counter, <t> timestamp
+syntax:expression: exec "/opt/amneziawg/validate.sh ispec '$VAR(@)'"
 
 end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "i4"

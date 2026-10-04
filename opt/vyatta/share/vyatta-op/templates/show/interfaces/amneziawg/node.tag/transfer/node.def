@@ -1,0 +1,2 @@
+help: Show specified AmneziaWG interface transfer statistics
+run: sudo awg show "$4" transfer

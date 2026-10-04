@@ -1,6 +1,7 @@
 priority: 540
 type: u32
-help: Junk Packet Minimum Size (jmin) - Minimum size of junk packets
-val_help: u32:0-65535; Minimum size of junk packets
+help: Minimum junk packet size (Jmin)
+val_help: u32:0-65535; Minimum size in bytes
+syntax:expression: $VAR(@) >= 0 && $VAR(@) <= 65535; "Must be between 0-65535"
 
 end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "jmin"

@@ -1,0 +1,2 @@
+help: Show all AmneziaWG interfaces listen port
+run: sudo awg show all listen-port

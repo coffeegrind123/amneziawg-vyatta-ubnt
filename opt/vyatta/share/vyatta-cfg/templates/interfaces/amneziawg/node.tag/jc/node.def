@@ -1,6 +1,7 @@
 priority: 530
 type: u32
-help: Junk Packet Count (jc) - Number of junk packets to send
-val_help: u32:0-65535; Number of junk packets
+help: Junk packet count (Jc) sent before each handshake
+val_help: u32:0-65535; Number of junk packets (0 to disable)
+syntax:expression: $VAR(@) >= 0 && $VAR(@) <= 65535; "Must be between 0-65535"
 
 end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "jc"

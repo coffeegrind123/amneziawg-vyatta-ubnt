@@ -1,0 +1,8 @@
+priority: 720
+type: txt
+help: Handshake attempts before giving up
+val_help: u32:0-65535; Attempts (0 for default 18)
+val_help: <start>-<end>; Attempts (0 for default 18), a random value from the range
+syntax:expression: exec "/opt/amneziawg/validate.sh range '$VAR(@)' 65535"
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "max-handshake-attempts"

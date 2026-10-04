@@ -1,0 +1,8 @@
+priority: 670
+type: txt
+help: Random padding added to transport data
+val_help: u32:0-65535; Bytes (0 for none)
+val_help: <start>-<end>; Bytes (0 for none), a random value from the range
+syntax:expression: exec "/opt/amneziawg/validate.sh range '$VAR(@)' 65535"
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "content-padding-addition"

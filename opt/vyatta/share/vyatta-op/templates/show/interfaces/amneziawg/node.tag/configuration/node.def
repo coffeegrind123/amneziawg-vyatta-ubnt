@@ -1,0 +1,2 @@
+help: Show full AmneziaWG state of specified interface
+run: sudo awg show "$4"

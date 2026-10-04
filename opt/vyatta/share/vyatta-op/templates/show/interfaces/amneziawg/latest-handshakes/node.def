@@ -1,0 +1,2 @@
+help: Show all AmneziaWG interfaces latest handshakes
+run: sudo awg show all latest-handshakes

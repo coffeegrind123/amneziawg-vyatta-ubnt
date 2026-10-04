@@ -94,61 +94,6 @@ function cfg_preshared-key() {
     fi
 }
 
-# AmneziaWG specific peer parameters
-function cfg_jc() {
-    if node_exists jc; then
-        sudo awg set $INTERFACE peer $PEER jc $(node_value jc)
-    fi
-}
-
-function cfg_jmin() {
-    if node_exists jmin; then
-        sudo awg set $INTERFACE peer $PEER jmin $(node_value jmin)
-    fi
-}
-
-function cfg_jmax() {
-    if node_exists jmax; then
-        sudo awg set $INTERFACE peer $PEER jmax $(node_value jmax)
-    fi
-}
-
-function cfg_s1() {
-    if node_exists s1; then
-        sudo awg set $INTERFACE peer $PEER s1 $(node_value s1)
-    fi
-}
-
-function cfg_s2() {
-    if node_exists s2; then
-        sudo awg set $INTERFACE peer $PEER s2 $(node_value s2)
-    fi
-}
-
-function cfg_h1() {
-    if node_exists h1; then
-        sudo awg set $INTERFACE peer $PEER h1 $(node_value h1)
-    fi
-}
-
-function cfg_h2() {
-    if node_exists h2; then
-        sudo awg set $INTERFACE peer $PEER h2 $(node_value h2)
-    fi
-}
-
-function cfg_h3() {
-    if node_exists h3; then
-        sudo awg set $INTERFACE peer $PEER h3 $(node_value h3)
-    fi
-}
-
-function cfg_h4() {
-    if node_exists h4; then
-        sudo awg set $INTERFACE peer $PEER h4 $(node_value h4)
-    fi
-}
-
 ## Peer option configuration
 # If more than three parameters are passed to this script
 if [ $# -gt 3 ]; then

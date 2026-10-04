@@ -1,0 +1,2 @@
+help: Show specified AmneziaWG interface allowed ips
+run: sudo awg show "$4" allowed-ips

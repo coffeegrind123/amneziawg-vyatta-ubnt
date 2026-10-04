@@ -1,0 +1,2 @@
+help: Show specified AmneziaWG interface private key
+run: sudo awg show "$4" private-key

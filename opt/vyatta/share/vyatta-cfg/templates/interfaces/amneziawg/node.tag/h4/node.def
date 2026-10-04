@@ -1,6 +1,8 @@
 priority: 610
-type: u32
-help: Header Junk Packet Size 4 (h4) - Size of fourth header junk packet
-val_help: u32:0-65535; Size of fourth header junk packet
+type: txt
+help: Transport data header (H4)
+val_help: u32:0-4294967295; Header value
+val_help: <start>-<end>; Header value, a random value from the range
+syntax:expression: exec "/opt/amneziawg/validate.sh range '$VAR(@)' 4294967295"
 
 end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "h4"

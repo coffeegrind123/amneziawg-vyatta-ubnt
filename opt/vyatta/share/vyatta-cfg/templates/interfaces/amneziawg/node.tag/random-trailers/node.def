@@ -1,0 +1,4 @@
+priority: 730
+help: Append random-length trailers to packets
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "random-trailers"

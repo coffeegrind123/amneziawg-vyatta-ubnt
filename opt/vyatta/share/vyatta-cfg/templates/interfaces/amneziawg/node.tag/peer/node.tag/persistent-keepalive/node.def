@@ -1,6 +1,8 @@
 priority: 930
-type: u32
+type: txt
 help: Persistent keepalive interval
 val_help: u32:0-65535; Keepalive interval in seconds (0 to disable)
+val_help: <start>-<end>; Keepalive interval, a random value from the range
+syntax:expression: exec "/opt/amneziawg/validate.sh range '$VAR(@)'"
 
 end:  /opt/amneziawg/peer.sh "$COMMIT_ACTION" "$VAR(../../@)" "$VAR(../@)" "persistent-keepalive"

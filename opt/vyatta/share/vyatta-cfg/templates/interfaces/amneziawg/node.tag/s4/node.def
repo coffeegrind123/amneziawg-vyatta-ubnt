@@ -1,0 +1,7 @@
+priority: 574
+type: u32
+help: Transport data padding (S4)
+val_help: u32:0-65535; Random bytes prepended to transport data
+syntax:expression: $VAR(@) >= 0 && $VAR(@) <= 65535; "Must be between 0-65535"
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "s4"

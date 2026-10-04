@@ -1,0 +1,2 @@
+help: Show all AmneziaWG interfaces fwmark
+run: sudo awg show all fwmark

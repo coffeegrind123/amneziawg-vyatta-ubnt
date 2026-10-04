@@ -1,0 +1,8 @@
+priority: 680
+type: txt
+help: Seconds before initiating a new handshake
+val_help: u32:0-65535; Seconds (0 for default 120)
+val_help: <start>-<end>; Seconds (0 for default 120), a random value from the range
+syntax:expression: exec "/opt/amneziawg/validate.sh range '$VAR(@)' 65535"
+
+end: /opt/amneziawg/interface.sh "$COMMIT_ACTION" "$VAR(../@)" "rekey-after-time"
